@@ -1,0 +1,48 @@
+{
+  "name": "wablast",
+  "version": "7.5.0",
+  "description": "Whatsapp remote API multi device, multi instance. Based on Baileys.",
+  "main": "src/index.js",
+  "author": "Triyatna",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "win-dev": "set NODE_ENV=development&&nodemon src/index.js",
+    "dev": "NODE_ENV=development node src/index.js",
+    "start": "NODE_ENV=production node src/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.57.0",
+    "@google/generative-ai": "^0.24.1",
+    "@whiskeysockets/baileys": "6.7.19",
+    "axios": "^1.7.8",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "helmet": "^7.1.0",
+    "https-proxy-agent": "^7.0.4",
+    "jimp": "^1.6.0",
+    "link-preview-js": "^3.0.14",
+    "lodash": "^4.17.21",
+    "mime-types": "^2.1.35",
+    "mysql2": "^3.9.2",
+    "node-cache": "^5.1.2",
+    "openai": "^5.10.2",
+    "pino": "^9.5.0",
+    "pino-pretty": "^10.2.0",
+    "qrcode": "^1.5.3",
+    "readline": "^1.3.0",
+    "sharp": "^0.33.4",
+    "socket.io": "^4.7.2",
+    "ulid": "^2.3.0"
+  },
+  "nodemonConfig": {
+    "ignore": [
+      "credentials/*"
+    ]
+  },
+  "devDependencies": {
+    "cross-env": "^10.1.0",
+    "nodemon": "^3.1.10"
+  }
+}

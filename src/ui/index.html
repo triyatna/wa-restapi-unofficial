@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Detopupin WA Console</title>
+    <!-- Favicon inline biar tidak 404 -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%2310b981'/%3E%3Ctext x='32' y='40' text-anchor='middle' font-family='Verdana' font-size='32' fill='white'%3EWA%3C/text%3E%3C/svg%3E"
+    />
+    <style>
+      :root {
+        --bg: #0b1020;
+        --card: #0f172a;
+        --muted: #94a3b8;
+        --text: #e2e8f0;
+        --border: #1f2937;
+        --primary: #60a5fa;
+        --accent: #34d399;
+        --danger: #ef4444;
+        --warn: #eab308;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        font-family: ui-sans-serif, system-ui, Segoe UI, Roboto, Arial;
+        background: linear-gradient(180deg, #0b1020 0%, #0a0f1e 100%);
+        color: var(--text);
+        margin: 0;
+        padding: 24px;
+      }
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      h1 {
+        margin: 0 0 16px 0;
+      }
+      .card {
+        background: rgba(15, 23, 42, 0.9);
+        backdrop-filter: blur(6px);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 16px;
+        margin-bottom: 16px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      input,
+      select,
+      textarea {
+        padding: 10px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: #0b1327;
+        color: var(--text);
+        outline: none;
+        min-width: 0;
+      }
+      textarea {
+        min-height: 90px;
+        resize: vertical;
+      }
+      button {
+        padding: 10px 14px;
+        border-radius: 12px;
+        border: 1px solid #2b3348;
+        background: #131b33;
+        color: var(--text);
+        cursor: pointer;
+        transition: 0.15s ease;
+        font-weight: 600;
+      }
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .btn-primary {
+        background: linear-gradient(90deg, #2563eb, #3b82f6);
+        border-color: #1e40af;
+      }
+      .btn-accent {
+        background: linear-gradient(90deg, #059669, #10b981);
+        border-color: #047857;
+      }
+      .btn-danger {
+        background: linear-gradient(90deg, #dc2626, #ef4444);
+        border-color: #b91c1c;
+      }
+      .pill {
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: #1f2937;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        gap: 12px;
+      }
+      .section-title {
+        margin: 12px 0 6px 0;
+        font-weight: 700;
+        opacity: 0.9;
+      }
+      .badge {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: #1f2937;
+        margin-left: 8px;
+      }
+      .ok {
+        color: #22c55e;
+      }
+      .warn {
+        color: #eab308;
+      }
+      .err {
+        color: #ef4444;
+      }
+      .qr {
+        background: #fff;
+        padding: 8px;
+        border-radius: 12px;
+        display: inline-block;
+      }
+      .tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
+      }
+      .tab {
+        padding: 8px 10px;
+        border-radius: 999px;
+        background: #0c152c;
+        border: 1px solid #223050;
+        cursor: pointer;
+      }
+      .tab.active {
+        background: #132243;
+        border-color: #2f4373;
+      }
+      .two-col {
+        display: grid;
+        grid-template-columns: 1.1fr 1fr;
+        gap: 14px;
+      }
+      @media (max-width: 900px) {
+        .two-col {
+          grid-template-columns: 1fr;
+        }
+      }
+      .toast {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        background: #111827;
+        color: #e5e7eb;
+        border: 1px solid #374151;
+        padding: 10px 14px;
+        border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        opacity: 0;
+        transform: translateY(10px);
+        transition: 0.2s;
+      }
+      .toast.show {
+        opacity: 1;
+        transform: none;
+      }
+      .code {
+        font-family: ui-monospace, Menlo, Consolas, monospace;
+        font-size: 12px;
+        background: #0c1426;
+        border: 1px dashed #203052;
+        border-radius: 10px;
+        padding: 6px 8px;
+        color: #cbd5e1;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Detopupin WhatsApp Console</h1>
+
+      <div class="card">
+        <div class="row">
+          <input
+            id="apiKey"
+            placeholder="X-API-Key (admin / user)"
+            style="flex: 1"
+          />
+          <input
+            id="baseUrl"
+            placeholder="Base URL (mis. http://localhost:4000)"
+            style="flex: 2"
+          />
+          <button id="btnLoad" class="btn-primary">Connect</button>
+        </div>
+        <p class="muted">
+          Gunakan <b>ADMIN_API_KEY</b> untuk manajemen sesi. User key untuk
+          kirim pesan.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3 class="section-title">Create / Manage Session</h3>
+        <div class="row">
+          <input id="sessId" placeholder="Session ID (opsional)" />
+          <input id="whUrl" placeholder="Webhook URL (opsional)" />
+          <input id="whSecret" placeholder="Webhook Secret (opsional)" />
+          <button id="btnCreate" class="btn-accent" disabled>
+            Create/Start
+          </button>
+          <button id="btnRefresh" disabled>List Sessions</button>
+        </div>
+
+        <div class="two-col" style="margin-top: 10px">
+          <div>
+            <div class="row">
+              <select id="sessionSelect" style="flex: 1">
+                <option value="">-- pilih session --</option>
+              </select>
+              <button id="btnJoinQR" disabled>Join QR Room</button>
+              <button id="btnDeleteSess" class="btn-danger" disabled>
+                Delete Session
+              </button>
+            </div>
+            <div id="sessionInfo" class="muted" style="margin-top: 8px">
+              Belum ada info.
+            </div>
+          </div>
+
+          <div id="qrArea" style="display: none">
+            <h4>QR</h4>
+            <div class="qr">
+              <img id="qrImg" alt="QR Code" width="260" height="260" />
+            </div>
+            <div id="qrMeta" class="muted" style="margin-top: 6px"></div>
+          </div>
+        </div>
+
+        <div style="margin-top: 12px">
+          <div id="sessions" class="grid"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="section-title">Messaging</h3>
+        <div class="tabs" id="tabs">
+          <div class="tab active" data-tab="text">Text</div>
+          <div class="tab" data-tab="media">Media</div>
+          <div class="tab" data-tab="location">Location</div>
+          <div class="tab" data-tab="buttons">Buttons</div>
+          <div class="tab" data-tab="list">List</div>
+          <div class="tab" data-tab="poll">Poll</div>
+          <div class="tab" data-tab="sticker">Sticker</div>
+          <div class="tab" data-tab="vcard">vCard</div>
+          <div class="tab" data-tab="gif">GIF</div>
+        </div>
+
+        <div class="tab-pane" id="pane-text">
+          <div class="row">
+            <input id="t_to" placeholder="to (62xxxx)" style="flex: 1" />
+            <input
+              id="t_mentions"
+              placeholder="mentions (comma 62xxxx)"
+              style="flex: 1"
+            />
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <textarea
+              id="t_text"
+              placeholder="text..."
+              style="flex: 1"
+            ></textarea>
+          </div>
+          <div class="row" style="justify-content: flex-end; margin-top: 8px">
+            <button id="btnSendText" class="btn-primary" disabled>
+              Send Text
+            </button>
+          </div>
+        </div>
+
+        <div class="tab-pane" id="pane-media" style="display: none">
+          <div class="row">
+            <input id="m_to" placeholder="to (62xxxx)" style="flex: 1" />
+            <select id="m_type">
+              <option value="image">image</option>
+              <option value="video">video</option>
+              <option value="audio">audio (PTT)</option>
+              <option value="document">document</option>
+            </select>
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <input
+              id="m_url"
+              placeholder="mediaUrl (https://...)"
+              style="flex: 2"
+            />
+            <input
+              id="m_caption"
+              placeholder="caption (opsional)"
+              style="flex: 1"
+            />
+          </div>
+          <div class="row" style="justify-content: flex-end; margin-top: 8px">
+            <button id="btnSendMedia" class="btn-primary" disabled>
+              Send Media
+            </button>
+          </div>
+        </div>
+
+        <div class="tab-pane" id="pane-location" style="display: none">
+          <div class="row">
+            <input id="loc_to" placeholder="to (62xxxx)" style="flex: 1" />
+            <input id="loc_lat" placeholder="lat -6.917464" />
+            <input id="loc_lng" placeholder="lng 107.619123" />
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <input
+              id="loc_name"
+              placeholder="name (opsional)"
+              style="flex: 1"
+            />
+            <input
+              id="loc_addr"
+              placeholder="address (opsional)"
+              style="flex: 2"
+            />
+          </div>
+          <div class="row" style="justify-content: flex-end; margin-top: 8px">
+            <button id="btnSendLocation" class="btn-primary" disabled>
+              Send Location
+            </button>
+          </div>
+        </div>
+
+        <div class="tab-pane" id="pane-buttons" style="display: none">
+          <div class="row">
+            <input id="b_to" placeholder="to (62xxxx)" style="flex: 1" />
+            <input
+              id="b_footer"
+              placeholder="footer (opsional)"
+              style="flex: 1"
+            />
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <textarea
+              id="b_text"
+              placeholder="text..."
+              style="flex: 1"
+            ></textarea>
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <input id="b_btn1" placeholder="Button 1 text" />
+            <input id="b_btn2" placeholder="Button 2 text" />
+            <input id="b_btn3" placeholder="Button 3 text" />
+          </div>
+          <div class="row" style="justify-content: flex-end; margin-top: 8px">
+            <button id="btnSendButtons" class="btn-primary" disabled>
+              Send Buttons
+            </button>
+          </div>
+          <div class="muted code" style="margin-top: 8px">
+            Buttons = quick replies (3 max)
+          </div>
+        </div>
+
+        <div class="tab-pane" id="pane-list" style="display: none">
+          <div class="row">
+            <input id="l_to" placeholder="to (62xxxx)" style="flex: 1" />
+            <input id="l_title" placeholder="title" />
+            <input
+              id="l_buttonText"
+              placeholder="button text (default: Open)"
+            />
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <textarea
+              id="l_text"
+              placeholder="text..."
+              style="flex: 1"
+            ></textarea>
+            <input
+              id="l_footer"
+              placeholder="footer (opsional)"
+              style="flex: 1"
+            />
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <textarea
+              id="l_sections"
+              placeholder="sections JSON"
+              style="flex: 1"
+            ></textarea>
+          </div>
+          <div class="row" style="justify-content: flex-end; margin-top: 8px">
+            <button id="btnSendList" class="btn-primary" disabled>
+              Send List
+            </button>
+          </div>
+        </div>
+
+        <div class="tab-pane" id="pane-poll" style="display: none">
+          <div class="row">
+            <input id="p_to" placeholder="to (62xxxx)" style="flex: 1" />
+            <input id="p_name" placeholder="poll title" style="flex: 1" />
+            <input
+              id="p_selectable"
+              type="number"
+              placeholder="selectableCount (default 1)"
+              min="1"
+              value="1"
+              style="max-width: 200px"
+            />
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <input
+              id="p_options"
+              placeholder="options (comma separated)"
+              style="flex: 1"
+            />
+          </div>
+          <div class="row" style="justify-content: flex-end; margin-top: 8px">
+            <button id="btnSendPoll" class="btn-primary" disabled>
+              Send Poll
+            </button>
+          </div>
+        </div>
+
+        <div class="tab-pane" id="pane-sticker" style="display: none">
+          <div class="row">
+            <input id="s_to" placeholder="to (62xxxx)" style="flex: 1" />
+            <input
+              id="s_imageUrl"
+              placeholder="imageUrl OR webpUrl (https://...)"
+              style="flex: 2"
+            />
+          </div>
+          <div class="row" style="justify-content: flex-end; margin-top: 8px">
+            <button id="btnSendSticker" class="btn-primary" disabled>
+              Send Sticker
+            </button>
+          </div>
+          <div class="muted code" style="margin-top: 8px">
+            Akan di-convert ke WebP 512×512 (sharp) di server.
+          </div>
+        </div>
+
+        <div class="tab-pane" id="pane-vcard" style="display: none">
+          <div class="row">
+            <input id="vc_to" placeholder="to (62xxxx)" style="flex: 1" />
+            <input id="vc_full" placeholder="Full Name" />
+            <input id="vc_org" placeholder="Org (opsional)" />
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <input id="vc_phone" placeholder="Phone 62xxxx" />
+            <input id="vc_email" placeholder="Email (opsional)" />
+          </div>
+          <div class="row" style="justify-content: flex-end; margin-top: 8px">
+            <button id="btnSendVcard" class="btn-primary" disabled>
+              Send vCard
+            </button>
+          </div>
+        </div>
+
+        <div class="tab-pane" id="pane-gif" style="display: none">
+          <div class="row">
+            <input id="g_to" placeholder="to (62xxxx)" style="flex: 1" />
+            <input
+              id="g_videoUrl"
+              placeholder="videoUrl (https://...mp4)"
+              style="flex: 2"
+            />
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <input
+              id="g_caption"
+              placeholder="caption (opsional)"
+              style="flex: 1"
+            />
+          </div>
+          <div class="row" style="justify-content: flex-end; margin-top: 8px">
+            <button id="btnSendGif" class="btn-primary" disabled>
+              Send GIF
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="section-title">Health</h3>
+        <div class="row">
+          <button id="btnHealth" disabled>Check</button>
+          <span id="healthBadge" class="badge"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Socket.IO client -->
+    <script src="/socket.io/socket.io.js"></script>
+    <!-- App JS -->
+    <script src="/ui/app.js"></script>
+  </body>
+</html>
