@@ -1,4 +1,3 @@
-// src/index.js
 import http from "http";
 import express from "express";
 import { Server } from "socket.io";
@@ -9,22 +8,22 @@ import { fileURLToPath } from "node:url";
 
 import { config } from "./config.js";
 import { logger } from "./logger.js";
-// HAPUS salah satu kalau securityMiddleware kamu juga set helmet/cors (jangan dobel)
 import { errorHandler } from "./middleware/error.js";
 
 import health from "./routes/health.js";
 import admin from "./routes/admin.js";
 import sessions from "./routes/sessions.js";
 import messages from "./routes/messages.js";
+import mediaBinary from "./routes/media-file.js";
 import webhooks from "./routes/webhooks.js";
 import qr from "./routes/qr.js";
-import ui from "./routes/ui.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 app.set("logger", logger);
+
 // ====== CORS ======
 const ORIGINS = (process.env.ALLOWED_ORIGINS || "http://localhost:4000")
   .split(",")
@@ -61,17 +60,31 @@ app.use(
   })
 );
 
+// ====== RAW upload router HARUS sebelum json parser ======
+import { apiKeyAuth } from "./middleware/auth.js";
+import { dynamicRateLimit } from "./middleware/ratelimit.js";
+import { antiSpam } from "./middleware/antispam.js";
+app.use(
+  "/api/messages",
+  apiKeyAuth("user"),
+  dynamicRateLimit(),
+  antiSpam(),
+  mediaBinary // route /api/messages/media/file (raw & multipart)
+);
+
+// ====== Parser JSON umum ======
 app.use(express.json({ limit: "2mb" }));
 
 // ====== Static UI & utils ======
-app.use("/ui", ui); // pastikan ui router men-serve /ui/index.html dan /ui/app.js
-app.use("/utils", qr); // /utils/qr.png?data=...
+import ui from "./routes/ui.js";
+app.use("/ui", ui);
+app.use("/utils", qr);
 
-// ====== API ======
+// ====== API lain (pakai JSON) ======
 app.use("/health", health);
 app.use("/api/admin", admin);
 app.use("/api/sessions", sessions);
-app.use("/api/messages", messages);
+app.use("/api/messages", messages); // rute /text, /media (via URL), /location, dll.
 app.use("/api/webhooks", webhooks);
 
 // error handler terakhir
@@ -88,15 +101,13 @@ const io = new Server(server, {
 });
 app.set("io", io);
 
-// >>> AUTH UNTUK SOCKET.IO: gunakan 'auth.apiKey' dari client
 io.use((socket, next) => {
   const key =
-    socket.handshake.auth?.apiKey || socket.handshake.headers["x-api-key"]; // fallback
+    socket.handshake.auth?.apiKey || socket.handshake.headers["x-api-key"];
   if (!key) return next(new Error("Missing X-API-Key"));
-  // TODO: validasi key di sini kalau perlu (admin/user)
+  // TODO: validasi key (admin/user) bila perlu
   next();
 });
-
 io.on("connection", (socket) => {
   socket.on("join", ({ room }) => socket.join(room));
 });

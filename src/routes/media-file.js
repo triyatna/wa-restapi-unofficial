@@ -3,14 +3,12 @@ import { getSession } from "../whatsapp/baileysClient.js";
 import { logger } from "../logger.js";
 
 const router = express.Router();
-// RAW: terima semua konten apa adanya (dibutuhkan untuk multipart custom & raw binary)
+// RAW terima semua konten apa adanya (dibutuhkan untuk multipart custom & raw binary)
 const rawAny = express.raw({ type: () => true, limit: "25mb" });
 
 /**
  * POST /api/messages/media/file
- * - mode multipart/form-data: bisa banyak file (file|files|file1|apa saja yang punya filename)
  *   + fields yang didukung: sessionId, to, caption (global), captions[] (per-index), delayMs, mediaType (hint global), text (untuk kirim teks tanpa file)
- * - mode raw: 1 file (body), meta via query: ?sessionId&to&mediaType&caption&fileName&delayMs
  */
 router.post("/media/file", rawAny, async (req, res, next) => {
   try {
@@ -25,21 +23,17 @@ router.post("/media/file", rawAny, async (req, res, next) => {
       if (!boundary)
         return res.status(400).json({ error: "Invalid multipart boundary" });
 
-      const parsed = parseMultipartAll(req.body, boundary); // <— kumpulkan SEMUA file
+      const parsed = parseMultipartAll(req.body, boundary);
       fields = parsed.fields || {};
       files = parsed.files || [];
-
-      // meta JSON opsional
       if (typeof fields.meta === "string") {
         try {
           Object.assign(fields, JSON.parse(fields.meta));
         } catch {}
       }
     } else {
-      // ---- Raw binary: 1 file dari body, meta dari query ----
       const buffer = req.body;
       if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
-        // izinkan kirim teks saja bila ada ?text= atau ?caption=
         const q = req.query || {};
         const sessionId = String(q.sessionId || "");
         const to = String(q.to || "");
@@ -91,19 +85,16 @@ router.post("/media/file", rawAny, async (req, res, next) => {
       ];
     }
 
-    // Validasi field wajib
     const { sessionId, to } = fields;
     if (!sessionId)
       return res.status(400).json({ error: "sessionId is required" });
     if (!to) return res.status(400).json({ error: "to (phone) is required" });
 
-    // Ambil session
     const s = getSession(sessionId);
     if (!s) return res.status(404).json({ error: "Session not found" });
 
     const jid = jidify(to);
 
-    // Kirim teks saja bila tidak ada file di multipart
     const fallbackText = fields.text || fields.caption;
     if (isMultipart && (!files || files.length === 0)) {
       if (!fallbackText)
@@ -117,13 +108,10 @@ router.post("/media/file", rawAny, async (req, res, next) => {
       });
     }
 
-    // Delay antar kirim — default 1200ms, minimal 300ms, maksimal 10000ms
     const delayMs = clampNumber(Number(fields.delayMs ?? 1200), 300, 10000);
 
-    // Caption per-file (opsional): captions[]=...
     const captions = toArrayMaybe(fields.captions);
 
-    // Hint mediaType global (opsional)
     const hintedGlobal = fields.mediaType;
 
     const results = [];
@@ -140,14 +128,12 @@ router.post("/media/file", rawAny, async (req, res, next) => {
         "application/octet-stream";
       const filename = part.filename || "file.bin";
 
-      // Deteksi mime & tipe kirim
       const det = detectMime(buffer, partMime, filename);
       const mime = det.mime;
       const ext = det.ext;
       const mediaType = normalizeMediaType(hintedGlobal, mime, filename);
       const caption = captions[i] ?? fields.caption;
 
-      // Eksekusi kirim dalam antrean (berurutan)
       try {
         await s.queue.push(async () => {
           logger.info({
@@ -212,11 +198,9 @@ router.post("/media/file", rawAny, async (req, res, next) => {
         });
       }
 
-      // Delay antar file (kecuali setelah file terakhir)
       if (i < files.length - 1) await sleep(delayMs);
     }
 
-    // Ringkas status global
     const okCount = results.filter((r) => r.ok).length;
     const anyError = results.some((r) => !r.ok);
 
@@ -243,7 +227,7 @@ function clampNumber(n, min, max) {
 }
 function toArrayMaybe(v) {
   if (v == null) return [];
-  // dukung bentuk: captions=a&captions=b atau captions[]=a&captions[]=b
+  // dukung bentuk = captions=a&captions=b atau captions[]=a&captions[]=b
   if (Array.isArray(v)) return v;
   if (typeof v === "string" && v.startsWith("[")) {
     try {
@@ -273,22 +257,19 @@ function getHeaderValue(v) {
   return String(v);
 }
 
-/** Parser multipart — kumpulkan SEMUA file (tiap part yang punya filename) */
+/** Parser multipart */
 function parseMultipartAll(bodyBuf, boundary) {
   const boundaryBuf = Buffer.from(`--${boundary}`);
   const endBoundaryBuf = Buffer.from(`--${boundary}--`);
   const result = { files: [], fields: {} };
 
-  // Cari boundary pembuka
   let pos = bodyBuf.indexOf(boundaryBuf);
   if (pos < 0) return result;
   pos += boundaryBuf.length;
 
   while (pos < bodyBuf.length) {
-    // lewati CRLF
     if (bodyBuf[pos] === 13 && bodyBuf[pos + 1] === 10) pos += 2;
 
-    // end?
     const isEnd = bodyBuf
       .slice(
         pos - boundaryBuf.length,
@@ -297,13 +278,11 @@ function parseMultipartAll(bodyBuf, boundary) {
       .equals(endBoundaryBuf);
     if (isEnd) break;
 
-    // header sampai \r\n\r\n
     const headerEnd = bodyBuf.indexOf(Buffer.from("\r\n\r\n"), pos);
     if (headerEnd < 0) break;
     const headerRaw = bodyBuf.slice(pos, headerEnd).toString("utf8");
     const headers = parseHeaders(headerRaw);
 
-    // cari part berikutnya
     let next = bodyBuf.indexOf(boundaryBuf, headerEnd + 4);
     if (next < 0) next = bodyBuf.indexOf(endBoundaryBuf, headerEnd + 4);
     if (next < 0) next = bodyBuf.length;
@@ -316,7 +295,6 @@ function parseMultipartAll(bodyBuf, boundary) {
       getHeaderValue(headers["content-disposition"])
     );
 
-    // file or field?
     if (disp?.filename) {
       result.files.push({
         headers,
@@ -328,15 +306,12 @@ function parseMultipartAll(bodyBuf, boundary) {
       });
       if (!result.fields.fileName) result.fields.fileName = disp.filename; // fallback global
     } else if (disp?.name) {
-      // text field
       const name = disp.name;
-      // dukung fields[] array
       if (name.endsWith("[]")) {
         const key = name.slice(0, -2);
         if (!Array.isArray(result.fields[key])) result.fields[key] = [];
         result.fields[key].push(partData.toString("utf8"));
       } else {
-        // jika sudah ada, ubah ke array
         if (result.fields[name] !== undefined) {
           if (!Array.isArray(result.fields[name])) {
             result.fields[name] = [result.fields[name]];
