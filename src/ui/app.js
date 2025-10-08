@@ -1,29 +1,40 @@
-document.addEventListener("DOMContentLoaded", () => {
-  const baseUrlInput = document.getElementById("baseUrl");
-  if (!baseUrlInput.value) baseUrlInput.value = window.location.origin;
-  // kunci tombol sampai Connect sukses
-  gateButtons(true);
-});
+/* ====== State & constants ====== */
+const LS_KEYS = {
+  apiKey: "wa.apiKey",
+  baseUrl: "wa.baseUrl",
+  currentSessionId: "wa.currentSessionId",
+};
 
-/** Helpers **/
+let ioClient = null;
+let currentSessionId = localStorage.getItem(LS_KEYS.currentSessionId) || "";
+
+/* ====== DOM helpers ====== */
 const el = (id) => document.getElementById(id);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
-let ioClient = null;
-let currentSessionId = "";
-
 function toast(msg, kind = "ok") {
   let t = document.querySelector(".toast");
-  if (!t) {
-    t = document.createElement("div");
-    t.className = "toast";
-    document.body.appendChild(t);
-  }
+  if (!t) return;
   t.textContent = msg;
   t.style.borderColor =
     kind === "ok" ? "#16a34a" : kind === "warn" ? "#eab308" : "#ef4444";
   t.classList.add("show");
-  setTimeout(() => t.classList.remove("show"), 1800);
+  setTimeout(() => t.classList.remove("show"), 2000);
+}
+
+function setSockDot(state) {
+  const dot = el("sockDot");
+  if (!dot) return;
+  dot.classList.remove("status-online", "status-offline", "status-reconn");
+  if (state === "online") dot.classList.add("status-online");
+  else if (state === "reconn") dot.classList.add("status-reconn");
+  else dot.classList.add("status-offline");
+  dot.title =
+    state === "online"
+      ? "socket online"
+      : state === "reconn"
+      ? "reconnecting…"
+      : "socket offline";
 }
 
 function gateButtons(disabled) {
@@ -51,15 +62,18 @@ function gateButtons(disabled) {
 
 function setQRVisible(flag) {
   const area = el("qrArea");
-  area.style.display = flag ? "block" : "none";
+  if (!area) return;
+  area.classList.toggle("hidden", !flag);
   if (!flag) {
-    el("qrImg").src = "";
-    el("qrMeta").textContent = "";
+    const img = el("qrImg");
+    if (img) img.src = "";
+    const meta = el("qrMeta");
+    if (meta) meta.textContent = "";
   }
 }
 
-// REST helper — selalu baca key/baseUrl langsung dari input
-async function api(path, method = "GET", body) {
+/* ====== API helper ====== */
+async function api(path, method = "GET", body, retry = 0) {
   const apiKey = el("apiKey").value.trim();
   const base = (el("baseUrl").value.trim() || window.location.origin).replace(
     /\/$/,
@@ -67,19 +81,31 @@ async function api(path, method = "GET", body) {
   );
   if (!apiKey) throw new Error('{"error":"Missing X-API-Key"}');
 
-  const r = await fetch(base + path, {
-    method,
-    headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!r.ok) {
-    const txt = await r.text().catch(() => "");
-    throw new Error(txt || r.statusText);
+  try {
+    const r = await fetch(base + path, {
+      method,
+      headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!r.ok) {
+      const txt = await r.text().catch(() => "");
+      throw new Error(txt || r.statusText);
+    }
+    return r.json();
+  } catch (e) {
+    // retry ringan untuk kasus server baru boot
+    if (retry < 2) {
+      await new Promise((r) => setTimeout(r, 600));
+      return api(path, method, body, retry + 1);
+    }
+    throw e;
   }
-  return r.json();
 }
 
+/* ====== UI helpers ====== */
 function setSessionInfo(s) {
+  const wrap = el("sessionInfo");
+  if (!wrap) return;
   const info = [
     `<div><b>${s.id}</b> <span class="pill">${s.status}</span></div>`,
     `<div class="muted">${
@@ -93,20 +119,24 @@ function setSessionInfo(s) {
       s.lastConn ? new Date(s.lastConn).toLocaleString() : "-"
     }</div>`,
   ].join("");
-  el("sessionInfo").innerHTML = info;
+  wrap.innerHTML = info;
 }
 
 function fillSessionSelect(items) {
   const sel = el("sessionSelect");
   const old = sel.value;
   sel.innerHTML = '<option value="">-- pilih session --</option>';
+
   items.forEach((s) => {
     const opt = document.createElement("option");
     opt.value = s.id;
     opt.textContent = `${s.id} (${s.status})`;
+    if (s.id === currentSessionId) opt.selected = true;
     sel.appendChild(opt);
   });
-  if (items.some((x) => x.id === old)) sel.value = old;
+
+  // fallback ke old kalau currentSessionId kosong tapi old masih ada
+  if (!currentSessionId && items.some((x) => x.id === old)) sel.value = old;
 }
 
 function renderQRImage(qr, sessionId) {
@@ -119,15 +149,41 @@ function renderQRImage(qr, sessionId) {
   el("qrMeta").textContent = `Session: ${sessionId} • QR akan refresh otomatis`;
 }
 
-/** Connect (Socket.IO + auth) **/
-el("btnLoad").addEventListener("click", () => {
+function updateActiveUI() {
+  // Kartu
+  document.querySelectorAll("#sessions .card").forEach((card) => {
+    const id = card.getAttribute("data-id");
+    if (!id) return;
+    const active = id === currentSessionId;
+    card.classList.toggle("is-active", active);
+    const btn = card.querySelector(".btn-set-active");
+    if (btn) {
+      btn.textContent = active ? "Active" : "Set Active";
+      btn.disabled = active;
+      btn.classList.toggle("btn-primary", !active);
+      btn.classList.toggle("btn-accent", active);
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+    }
+  });
+
+  // Dropdown
+  const sel = el("sessionSelect");
+  if (sel && currentSessionId) {
+    if ([...sel.options].some((o) => o.value === currentSessionId)) {
+      sel.value = currentSessionId;
+    }
+  }
+}
+
+/* ====== Socket connect & auto-reconnect ====== */
+function connectSocket({ silent = false } = {}) {
   const apiKey = el("apiKey").value.trim();
   const base = (el("baseUrl").value.trim() || window.location.origin).replace(
     /\/$/,
     ""
   );
   if (!apiKey || !base) {
-    toast("Isi API key & Base URL", "warn");
+    if (!silent) toast("Isi API key & Base URL", "warn");
     return;
   }
 
@@ -135,35 +191,61 @@ el("btnLoad").addEventListener("click", () => {
     if (ioClient) {
       ioClient.removeAllListeners();
       ioClient.disconnect();
+      ioClient = null;
     }
+
     ioClient = io(base, {
       transports: ["websocket"],
-      auth: { apiKey }, // penting: kirim apiKey sebagai auth
+      auth: { apiKey },
       withCredentials: false,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 800,
+      reconnectionDelayMax: 5000,
+      timeout: 10000,
     });
 
     ioClient.on("connect", () => {
+      setSockDot("online");
       gateButtons(false);
-      toast("Socket connected");
+      if (!silent) toast("Socket connected");
+
+      // Join room sesi aktif
+      if (currentSessionId) {
+        ioClient.emit("join", { room: currentSessionId });
+      }
+
+      // Refresh list
+      el("btnRefresh")?.click();
     });
 
+    ioClient.on("reconnect_attempt", () => setSockDot("reconn"));
+    ioClient.on("reconnect", () => {
+      setSockDot("online");
+      gateButtons(false);
+      el("btnRefresh")?.click();
+    });
+    ioClient.on("reconnect_error", () => setSockDot("reconn"));
+    ioClient.on("reconnect_failed", () => setSockDot("offline"));
+
     ioClient.on("connect_error", (err) => {
+      setSockDot("offline");
       gateButtons(true);
       const msg =
         err && (err.message || err.data)
           ? err.message || err.data
           : "connect_error";
-      toast("Socket error: " + msg, "err");
+      if (!silent) toast("Socket error: " + msg, "err");
       console.debug("[socket connect_error]", err);
     });
 
     ioClient.on("disconnect", (reason) => {
+      setSockDot("offline");
       if (reason !== "io client disconnect")
         toast("Socket disconnected: " + reason, "warn");
-      // jangan langsung gateButtons(true) biar user bisa re-connect manual
     });
 
-    // events
+    // server events
     ioClient.on("qr", ({ id, qr }) => {
       if (currentSessionId && id !== currentSessionId) return;
       renderQRImage(qr, id);
@@ -172,20 +254,121 @@ el("btnLoad").addEventListener("click", () => {
       if (currentSessionId && id !== currentSessionId) return;
       toast("Session ready!");
       setQRVisible(false);
-      el("btnRefresh").click();
+      el("btnRefresh")?.click();
     });
     ioClient.on("closed", ({ id }) => {
       if (currentSessionId && id !== currentSessionId) return;
       toast("Session closed", "warn");
-      el("btnRefresh").click();
+      el("btnRefresh")?.click();
     });
   } catch (e) {
     console.error(e);
-    toast(e.message || "Gagal inisialisasi socket", "err");
+    if (!silent) toast(e.message || "Gagal inisialisasi socket", "err");
   }
+}
+
+/* ====== Persist helpers ====== */
+function persistInputs() {
+  localStorage.setItem(LS_KEYS.apiKey, el("apiKey").value.trim());
+  localStorage.setItem(LS_KEYS.baseUrl, el("baseUrl").value.trim());
+  localStorage.setItem(LS_KEYS.currentSessionId, currentSessionId || "");
+}
+
+function loadInputsFromStorage() {
+  const savedApiKey = localStorage.getItem(LS_KEYS.apiKey) || "";
+  const savedBase =
+    localStorage.getItem(LS_KEYS.baseUrl) || window.location.origin;
+  if (!el("apiKey").value) el("apiKey").value = savedApiKey;
+  if (!el("baseUrl").value) el("baseUrl").value = savedBase;
+}
+
+/* ====== Boot ====== */
+document.addEventListener("DOMContentLoaded", async () => {
+  loadInputsFromStorage();
+  if (!el("baseUrl").value) el("baseUrl").value = window.location.origin;
+  gateButtons(true);
+
+  // Auto-connect saat ada kredensial tersimpan
+  if (el("apiKey").value && el("baseUrl").value) {
+    connectSocket({ silent: true });
+
+    // Jika ada sesi aktif tersimpan, coba tarik detail & QR
+    if (currentSessionId) {
+      try {
+        const detail = await api("/api/sessions/" + currentSessionId);
+        setSessionInfo(detail);
+        if (detail.qr) renderQRImage(detail.qr, currentSessionId);
+        else setQRVisible(false);
+      } catch (e) {
+        setTimeout(async () => {
+          try {
+            const detail = await api("/api/sessions/" + currentSessionId);
+            setSessionInfo(detail);
+            if (detail.qr) renderQRImage(detail.qr, currentSessionId);
+            else setQRVisible(false);
+          } catch {}
+        }, 800);
+      }
+    }
+  }
+
+  document.querySelector("[data-autofocus]")?.focus();
 });
 
-/** Sessions **/
+/* ====== Controls: Connect ====== */
+el("btnLoad").addEventListener("click", () => {
+  persistInputs();
+  connectSocket();
+});
+
+/* ====== Sessions ====== */
+function attachSessionCardsHandlers(wrap) {
+  wrap.querySelectorAll(".btn-del").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      try {
+        await api("/api/sessions/" + btn.dataset.id, "DELETE");
+        if (currentSessionId === btn.dataset.id) {
+          currentSessionId = "";
+          persistInputs();
+          setQRVisible(false);
+        }
+        el("btnRefresh").click();
+        toast("Session deleted", "warn");
+      } catch (e) {
+        toast(e.message || "Error", "err");
+      }
+    })
+  );
+  wrap.querySelectorAll(".btn-join").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      if (ioClient?.connected) {
+        ioClient.emit("join", { room: btn.dataset.id });
+        toast("Joined QR room: " + btn.dataset.id);
+      } else {
+        toast("Socket belum connect. Klik Connect dulu.", "warn");
+      }
+    })
+  );
+  wrap.querySelectorAll(".btn-set-active").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      try {
+        currentSessionId = btn.dataset.id;
+        persistInputs();
+        el("sessionSelect").value = currentSessionId;
+        const detail = await api("/api/sessions/" + currentSessionId);
+        setSessionInfo(detail);
+        if (ioClient?.connected)
+          ioClient.emit("join", { room: currentSessionId });
+        if (detail.qr) renderQRImage(detail.qr, currentSessionId);
+        else setQRVisible(false);
+        updateActiveUI();
+      } catch (e) {
+        toast(e.message || "Error", "err");
+      }
+    })
+  );
+}
+
 el("btnCreate").addEventListener("click", async () => {
   try {
     const payload = {
@@ -196,6 +379,7 @@ el("btnCreate").addEventListener("click", async () => {
     const out = await api("/api/sessions", "POST", payload);
     toast("Started session " + out.id);
     currentSessionId = out.id;
+    persistInputs();
     if (ioClient?.connected) ioClient.emit("join", { room: currentSessionId });
     el("btnRefresh").click();
   } catch (e) {
@@ -206,61 +390,34 @@ el("btnCreate").addEventListener("click", async () => {
 el("btnRefresh").addEventListener("click", async () => {
   try {
     const out = await api("/api/sessions");
-    fillSessionSelect(out.items);
+    const items = out.items || out.data || [];
+    fillSessionSelect(items);
+
     const wrap = el("sessions");
     wrap.innerHTML = "";
-    out.items.forEach((s) => {
+    items.forEach((s) => {
+      const isActive = s.id === currentSessionId;
       const div = document.createElement("div");
-      div.className = "card";
-      div.innerHTML =
-        `<div><b>${s.id}</b> <span class="pill">${s.status}</span></div>` +
-        `<div class="muted">${s.me ? "Logged in" : "Not logged in"}</div>` +
-        `<div class="row" style="margin-top:8px">
-          <button data-id="${s.id}" class="btn-join">Join QR</button>
-          <button data-id="${s.id}" class="btn-set-active btn-primary">Set Active</button>
-          <button data-id="${s.id}" class="btn-del btn-danger">Delete</button>
-        </div>`;
+      div.className = "card" + (isActive ? " is-active" : "");
+      div.setAttribute("data-id", s.id);
+      div.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+           <div><b>${s.id}</b> <span class="pill">${s.status}</span></div>
+           <div class="muted">${s.me ? "Logged in" : "Not logged in"}</div>
+         </div>
+         <div class="row mt-8">
+           <button data-id="${s.id}" class="btn-join">Join QR</button>
+           <button data-id="${s.id}" class="btn-set-active ${
+        isActive ? "btn-accent" : "btn-primary"
+      }" ${isActive ? "disabled" : ""}>
+             ${isActive ? "Active" : "Set Active"}
+           </button>
+           <button data-id="${s.id}" class="btn-del btn-danger">Delete</button>
+         </div>`;
       wrap.appendChild(div);
     });
-    wrap.querySelectorAll(".btn-del").forEach((btn) =>
-      btn.addEventListener("click", async () => {
-        try {
-          await api("/api/sessions/" + btn.dataset.id, "DELETE");
-          if (currentSessionId === btn.dataset.id) {
-            currentSessionId = "";
-            setQRVisible(false);
-          }
-          el("btnRefresh").click();
-          toast("Session deleted", "warn");
-        } catch (e) {
-          toast(e.message || "Error", "err");
-        }
-      })
-    );
-    wrap.querySelectorAll(".btn-join").forEach((btn) =>
-      btn.addEventListener("click", () => {
-        if (ioClient?.connected) {
-          ioClient.emit("join", { room: btn.dataset.id });
-          toast("Joined QR room: " + btn.dataset.id);
-        } else {
-          toast("Socket belum connect. Klik Connect dulu.", "warn");
-        }
-      })
-    );
-    wrap.querySelectorAll(".btn-set-active").forEach((btn) =>
-      btn.addEventListener("click", async () => {
-        try {
-          currentSessionId = btn.dataset.id;
-          el("sessionSelect").value = currentSessionId;
-          const detail = await api("/api/sessions/" + currentSessionId);
-          setSessionInfo(detail);
-          if (detail.qr) renderQRImage(detail.qr, currentSessionId);
-          else setQRVisible(false);
-        } catch (e) {
-          toast(e.message || "Error", "err");
-        }
-      })
-    );
+
+    attachSessionCardsHandlers(wrap);
+    updateActiveUI();
   } catch (e) {
     toast(e.message || "Error", "err");
   }
@@ -270,6 +427,7 @@ el("btnJoinQR").addEventListener("click", () => {
   const id = el("sessionSelect").value;
   if (!id) return toast("Pilih session dulu", "warn");
   currentSessionId = id;
+  persistInputs();
   if (ioClient?.connected) {
     ioClient.emit("join", { room: id });
     toast("Joined QR room: " + id);
@@ -285,9 +443,11 @@ el("btnDeleteSess").addEventListener("click", async () => {
     await api("/api/sessions/" + id, "DELETE");
     if (currentSessionId === id) {
       currentSessionId = "";
+      persistInputs();
       setQRVisible(false);
     }
     el("btnRefresh").click();
+    updateActiveUI();
     toast("Session deleted", "warn");
   } catch (e) {
     toast(e.message || "Error", "err");
@@ -299,25 +459,47 @@ el("sessionSelect").addEventListener("change", async () => {
   if (!id) return;
   try {
     currentSessionId = id;
+    persistInputs();
     const detail = await api("/api/sessions/" + id);
     setSessionInfo(detail);
     if (detail.qr) renderQRImage(detail.qr, id);
     else setQRVisible(false);
+    if (ioClient?.connected) ioClient.emit("join", { room: id });
+    updateActiveUI();
   } catch (e) {
     toast(e.message || "Error", "err");
   }
 });
 
-/** Tabs **/
+/* ====== Tabs ====== */
 const tabs = document.getElementById("tabs");
 tabs.addEventListener("click", (e) => {
   const t = e.target.closest(".tab");
   if (!t) return;
-  $$(".tab").forEach((x) => x.classList.remove("active"));
-  t.classList.add("active");
   const name = t.dataset.tab;
-  $$(".tab-pane").forEach((p) => (p.style.display = "none"));
-  document.getElementById("pane-" + name).style.display = "block";
+  $$(".tab").forEach((x) => {
+    x.classList.toggle("active", x === t);
+    x.setAttribute("aria-selected", x === t ? "true" : "false");
+  });
+  $$(".tab-pane").forEach((p) =>
+    p.classList.toggle("hidden", p.id !== "pane-" + name)
+  );
+});
+tabs.addEventListener("keydown", (e) => {
+  const tabsEls = $$("#tabs .tab");
+  const idx = tabsEls.findIndex((x) => x === document.activeElement);
+  if (idx < 0) return;
+  if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+    e.preventDefault();
+    const next = tabsEls[(idx + 1) % tabsEls.length];
+    next.focus();
+    next.click();
+  } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+    e.preventDefault();
+    const prev = tabsEls[(idx - 1 + tabsEls.length) % tabsEls.length];
+    prev.focus();
+    prev.click();
+  }
 });
 
 function requireSession() {
@@ -327,10 +509,14 @@ function requireSession() {
   }
 }
 
-/** Messaging actions **/
+/* ====== Messaging actions ====== */
+async function send(path, body) {
+  requireSession();
+  return api(path, "POST", body);
+}
+
 el("btnSendText").addEventListener("click", async () => {
   try {
-    requireSession();
     const to = el("t_to").value.trim();
     const text = el("t_text").value;
     const mentions = el("t_mentions").value.trim()
@@ -339,7 +525,7 @@ el("btnSendText").addEventListener("click", async () => {
           .map((s) => s.trim())
           .filter(Boolean)
       : [];
-    await api("/api/messages/text", "POST", {
+    await send("/api/messages/text", {
       sessionId: currentSessionId,
       to,
       text,
@@ -353,12 +539,11 @@ el("btnSendText").addEventListener("click", async () => {
 
 el("btnSendMedia").addEventListener("click", async () => {
   try {
-    requireSession();
     const to = el("m_to").value.trim();
     const mediaType = el("m_type").value;
     const mediaUrl = el("m_url").value.trim();
     const caption = el("m_caption").value;
-    await api("/api/messages/media", "POST", {
+    await send("/api/messages/media", {
       sessionId: currentSessionId,
       to,
       mediaType,
@@ -373,13 +558,12 @@ el("btnSendMedia").addEventListener("click", async () => {
 
 el("btnSendLocation").addEventListener("click", async () => {
   try {
-    requireSession();
     const to = el("loc_to").value.trim();
     const lat = parseFloat(el("loc_lat").value);
     const lng = parseFloat(el("loc_lng").value);
     const name = el("loc_name").value;
     const address = el("loc_addr").value;
-    await api("/api/messages/location", "POST", {
+    await send("/api/messages/location", {
       sessionId: currentSessionId,
       to,
       lat,
@@ -395,7 +579,6 @@ el("btnSendLocation").addEventListener("click", async () => {
 
 el("btnSendButtons").addEventListener("click", async () => {
   try {
-    requireSession();
     const to = el("b_to").value.trim();
     const text = el("b_text").value;
     const footer = el("b_footer").value;
@@ -404,7 +587,7 @@ el("btnSendButtons").addEventListener("click", async () => {
         t?.trim() ? { id: `btn_${i + 1}`, text: t.trim() } : null
       )
       .filter(Boolean);
-    await api("/api/messages/buttons", "POST", {
+    await send("/api/messages/buttons", {
       sessionId: currentSessionId,
       to,
       text,
@@ -419,7 +602,6 @@ el("btnSendButtons").addEventListener("click", async () => {
 
 el("btnSendList").addEventListener("click", async () => {
   try {
-    requireSession();
     const to = el("l_to").value.trim();
     const title = el("l_title").value;
     const text = el("l_text").value;
@@ -428,7 +610,7 @@ el("btnSendList").addEventListener("click", async () => {
     let sections = [];
     const raw = el("l_sections").value.trim();
     if (raw) sections = JSON.parse(raw);
-    await api("/api/messages/list", "POST", {
+    await send("/api/messages/list", {
       sessionId: currentSessionId,
       to,
       title,
@@ -445,7 +627,6 @@ el("btnSendList").addEventListener("click", async () => {
 
 el("btnSendPoll").addEventListener("click", async () => {
   try {
-    requireSession();
     const to = el("p_to").value.trim();
     const name = el("p_name").value;
     const selectableCount = parseInt(el("p_selectable").value) || 1;
@@ -453,7 +634,7 @@ el("btnSendPoll").addEventListener("click", async () => {
       .value.split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    await api("/api/messages/poll", "POST", {
+    await send("/api/messages/poll", {
       sessionId: currentSessionId,
       to,
       name,
@@ -468,10 +649,9 @@ el("btnSendPoll").addEventListener("click", async () => {
 
 el("btnSendSticker").addEventListener("click", async () => {
   try {
-    requireSession();
     const to = el("s_to").value.trim();
     const imageUrl = el("s_imageUrl").value.trim();
-    await api("/api/messages/sticker", "POST", {
+    await send("/api/messages/sticker", {
       sessionId: currentSessionId,
       to,
       imageUrl,
@@ -484,7 +664,6 @@ el("btnSendSticker").addEventListener("click", async () => {
 
 el("btnSendVcard").addEventListener("click", async () => {
   try {
-    requireSession();
     const to = el("vc_to").value.trim();
     const contact = {
       fullName: el("vc_full").value,
@@ -492,7 +671,7 @@ el("btnSendVcard").addEventListener("click", async () => {
       phone: el("vc_phone").value,
       email: el("vc_email").value,
     };
-    await api("/api/messages/vcard", "POST", {
+    await send("/api/messages/vcard", {
       sessionId: currentSessionId,
       to,
       contact,
@@ -505,11 +684,10 @@ el("btnSendVcard").addEventListener("click", async () => {
 
 el("btnSendGif").addEventListener("click", async () => {
   try {
-    requireSession();
     const to = el("g_to").value.trim();
     const videoUrl = el("g_videoUrl").value.trim();
     const caption = el("g_caption").value;
-    await api("/api/messages/gif", "POST", {
+    await send("/api/messages/gif", {
       sessionId: currentSessionId,
       to,
       videoUrl,
@@ -521,15 +699,29 @@ el("btnSendGif").addEventListener("click", async () => {
   }
 });
 
-/** Health **/
+/* ====== Health ====== */
 el("btnHealth").addEventListener("click", async () => {
   try {
     const out = await api("/health");
     const badge = el("healthBadge");
     badge.innerText = out.status === "ok" ? "OK" : "WARN";
     badge.className = "badge " + (out.status === "ok" ? "ok" : "warn");
+    badge.style.display = "inline-block";
     toast("Health checked");
   } catch (e) {
     toast("Health error", "err");
+  }
+});
+
+/* ====== Cross-tab sync ====== */
+window.addEventListener("storage", (ev) => {
+  if (
+    ev.key === LS_KEYS.apiKey ||
+    ev.key === LS_KEYS.baseUrl ||
+    ev.key === LS_KEYS.currentSessionId
+  ) {
+    loadInputsFromStorage();
+    currentSessionId = localStorage.getItem(LS_KEYS.currentSessionId) || "";
+    connectSocket({ silent: true });
   }
 });

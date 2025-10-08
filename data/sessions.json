@@ -1,0 +1,20 @@
+{
+  "sessions": {
+    "cek-test": {
+      "id": "cek-test",
+      "label": "cek-test",
+      "autoStart": true,
+      "webhookUrl": "",
+      "webhookSecret": "supersecret",
+      "createdAt": 1759897613643
+    },
+    "device": {
+      "id": "device",
+      "label": "device",
+      "autoStart": true,
+      "webhookUrl": "",
+      "webhookSecret": "supersecret",
+      "createdAt": 1759897635257
+    }
+  }
+}

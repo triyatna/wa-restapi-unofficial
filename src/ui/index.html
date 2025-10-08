@@ -2,84 +2,328 @@
 <html lang="id">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Detopupin WA Console</title>
-    <!-- Favicon inline biar tidak 404 -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta
+      name="description"
+      content="WhatsApp UI Console — multi-session WhatsApp REST API console"
+    />
+    <title>WhatsApp UI Console</title>
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%2310b981'/%3E%3Ctext x='32' y='40' text-anchor='middle' font-family='Verdana' font-size='32' fill='white'%3EWA%3C/text%3E%3C/svg%3E"
     />
     <style>
+      /* ===== Theme tokens ===== */
       :root {
-        --bg: #0b1020;
-        --card: #0f172a;
-        --muted: #94a3b8;
-        --text: #e2e8f0;
-        --border: #1f2937;
+        --bg: #070b16;
+        --bg2: #0a0f1f;
+        --glass: rgba(13, 19, 39, 0.6);
+        --glass-strong: rgba(13, 19, 39, 0.75);
+        --border: rgba(255, 255, 255, 0.06);
+        --text: #e5edf7;
+        --muted: #97a7c6;
         --primary: #60a5fa;
         --accent: #34d399;
         --danger: #ef4444;
         --warn: #eab308;
+        --ok: #22c55e;
+        --shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+        --radius: 18px;
+
+        /* cursor light */
+        --mx: 50%;
+        --my: 0%;
       }
+
       * {
         box-sizing: border-box;
       }
+      html,
       body {
-        font-family: ui-sans-serif, system-ui, Segoe UI, Roboto, Arial;
-        background: linear-gradient(180deg, #0b1020 0%, #0a0f1e 100%);
+        height: 100%;
+      }
+      body {
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+          Arial, "Apple Color Emoji", "Segoe UI Emoji";
         color: var(--text);
         margin: 0;
-        padding: 24px;
+        background: radial-gradient(
+            1000px 600px at 15% 0%,
+            rgba(59, 130, 246, 0.12),
+            transparent 60%
+          ),
+          radial-gradient(
+            1200px 800px at 85% 20%,
+            rgba(16, 185, 129, 0.12),
+            transparent 60%
+          ),
+          linear-gradient(180deg, var(--bg), var(--bg2));
+        overflow-x: hidden;
       }
+
+      /* ===== Animated background grid & cursor glow ===== */
+      .backdrop {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+      }
+      #netbg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      .grid-lines {
+        position: absolute;
+        inset: -10%;
+        background-image: linear-gradient(
+            to right,
+            rgba(99, 102, 241, 0.07) 1px,
+            transparent 1px
+          ),
+          linear-gradient(
+            to bottom,
+            rgba(99, 102, 241, 0.07) 1px,
+            transparent 1px
+          );
+        background-size: 40px 40px;
+        mask-image: radial-gradient(
+          1200px 600px at var(--mx) var(--my),
+          #000 30%,
+          rgba(0, 0, 0, 0.2) 60%,
+          transparent 75%
+        );
+        animation: drift 24s linear infinite;
+        transform: translateZ(0);
+      }
+      @keyframes drift {
+        0% {
+          transform: translate3d(0, 0, 0);
+        }
+        50% {
+          transform: translate3d(-20px, -20px, 0);
+        }
+        100% {
+          transform: translate3d(0, 0, 0);
+        }
+      }
+      .cursor-glow {
+        position: absolute;
+        inset: 0%;
+        background: radial-gradient(
+            600px 420px at var(--mx) var(--my),
+            rgba(255, 255, 255, 0.24),
+            rgba(255, 255, 255, 0.08) 45%,
+            transparent 75%
+          ),
+          radial-gradient(
+            340px 240px at calc(var(--mx) + 60px) calc(var(--my) + 30px),
+            rgba(255, 255, 255, 0.13),
+            transparent 70%
+          );
+        filter: blur(10px);
+        mix-blend-mode: screen;
+        opacity: 0.75;
+        transition: opacity 0.2s ease;
+      }
+      .backdrop::after {
+        content: "";
+        position: absolute;
+        inset: -10%;
+        background: linear-gradient(
+          180deg,
+          transparent,
+          rgba(255, 255, 255, 0.06) 35%,
+          transparent 70%
+        );
+        mix-blend-mode: screen;
+        animation: scanY 12s ease-in-out infinite;
+        opacity: 0.35;
+      }
+      @keyframes scanY {
+        0%,
+        100% {
+          transform: translateY(-6%);
+        }
+        50% {
+          transform: translateY(6%);
+        }
+      }
+      /* ===== Layout ===== */
       .container {
+        position: relative;
+        z-index: 1;
         max-width: 1200px;
         margin: 0 auto;
+        padding: 28px 20px 96px; /* room for footer */
+      }
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 16px;
       }
       h1 {
-        margin: 0 0 16px 0;
+        margin: 0;
+        letter-spacing: 0.2px;
+        line-height: 1.2;
+        font-size: clamp(22px, 3.2vw, 28px);
       }
+
+      /* status dot */
+      .statusdot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-left: 8px;
+        border: 1px solid #1f2937;
+      }
+      .status-online {
+        background: #16a34a;
+        box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.6);
+        animation: pulse 1.8s infinite;
+      }
+      .status-offline {
+        background: #ef4444;
+      }
+      .status-reconn {
+        background: #eab308;
+      }
+      @keyframes pulse {
+        0% {
+          box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.55);
+        }
+        70% {
+          box-shadow: 0 0 0 10px rgba(22, 163, 74, 0);
+        }
+        100% {
+          box-shadow: 0 0 0 0 rgba(22, 163, 74, 0);
+        }
+      }
+
+      /* ===== Components ===== */
       .card {
-        background: rgba(15, 23, 42, 0.9);
-        backdrop-filter: blur(6px);
+        background: linear-gradient(
+            180deg,
+            rgba(255, 255, 255, 0.04),
+            rgba(255, 255, 255, 0.02)
+          ),
+          var(--glass);
+        -webkit-backdrop-filter: blur(10px) saturate(120%);
+        backdrop-filter: blur(10px) saturate(120%);
         border: 1px solid var(--border);
-        border-radius: 18px;
+        border-radius: var(--radius);
         padding: 16px;
         margin-bottom: 16px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+        box-shadow: var(--shadow);
+        transition: transform 0.2s ease, box-shadow 0.2s ease,
+          border-color 0.2s ease;
       }
+      .card:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 14px 36px rgba(0, 0, 0, 0.33);
+        border-color: rgba(59, 130, 246, 0.35);
+      }
+      .card.is-active {
+        border-color: rgba(59, 130, 246, 0.5);
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.22), var(--shadow);
+      }
+
       .row {
         display: flex;
         gap: 12px;
         flex-wrap: wrap;
       }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 12px;
+      }
+
+      .section-title {
+        margin: 12px 0 6px 0;
+        font-weight: 800;
+        letter-spacing: 0.2px;
+        opacity: 0.95;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .pill {
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: #1f2937;
+      }
+      .badge {
+        display: inline-block;
+        padding: 8px 8px;
+        border-radius: 99px;
+        background: #1f2937;
+        margin-left: 8px;
+      }
+      .ok {
+        color: var(--ok);
+      }
+      .warn {
+        color: var(--warn);
+      }
+      .err {
+        color: var(--danger);
+      }
+
+      /* Inputs */
       input,
       select,
       textarea {
-        padding: 10px;
-        border-radius: 10px;
-        border: 1px solid var(--border);
-        background: #0b1327;
+        padding: 11px 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: var(--glass-strong);
         color: var(--text);
         outline: none;
         min-width: 0;
+        transition: border-color 0.15s, box-shadow 0.15s, background 0.15s,
+          transform 0.15s;
+      }
+      input::placeholder,
+      textarea::placeholder {
+        color: #8aa0be99;
+      }
+      input:focus,
+      select:focus,
+      textarea:focus {
+        border-color: rgba(59, 130, 246, 0.5);
+        box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.18);
+        background: rgba(12, 19, 39, 0.9);
       }
       textarea {
-        min-height: 90px;
+        min-height: 100px;
         resize: vertical;
       }
+
+      /* Buttons */
       button {
         padding: 10px 14px;
         border-radius: 12px;
-        border: 1px solid #2b3348;
-        background: #131b33;
+        border: 1px solid var(--border);
+        background: linear-gradient(180deg, #0e1730, #0c152d);
         color: var(--text);
         cursor: pointer;
-        transition: 0.15s ease;
-        font-weight: 600;
+        font-weight: 700;
+        transition: transform 0.15s, box-shadow 0.15s, background 0.15s,
+          opacity 0.15s, border-color 0.15s;
       }
       button:hover {
         transform: translateY(-1px);
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+        border-color: rgba(59, 130, 246, 0.45);
       }
       button:disabled {
         opacity: 0.6;
@@ -97,46 +341,7 @@
         background: linear-gradient(90deg, #dc2626, #ef4444);
         border-color: #b91c1c;
       }
-      .pill {
-        padding: 4px 8px;
-        border-radius: 999px;
-        background: #1f2937;
-      }
-      .muted {
-        color: var(--muted);
-      }
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-        gap: 12px;
-      }
-      .section-title {
-        margin: 12px 0 6px 0;
-        font-weight: 700;
-        opacity: 0.9;
-      }
-      .badge {
-        display: inline-block;
-        padding: 3px 8px;
-        border-radius: 999px;
-        background: #1f2937;
-        margin-left: 8px;
-      }
-      .ok {
-        color: #22c55e;
-      }
-      .warn {
-        color: #eab308;
-      }
-      .err {
-        color: #ef4444;
-      }
-      .qr {
-        background: #fff;
-        padding: 8px;
-        border-radius: 12px;
-        display: inline-block;
-      }
+
       .tabs {
         display: flex;
         gap: 8px;
@@ -144,43 +349,39 @@
         flex-wrap: wrap;
       }
       .tab {
-        padding: 8px 10px;
+        padding: 8px 12px;
         border-radius: 999px;
-        background: #0c152c;
-        border: 1px solid #223050;
+        background: rgba(12, 21, 44, 0.8);
+        border: 1px solid var(--border);
         cursor: pointer;
+        user-select: none;
+        transition: 0.15s;
       }
-      .tab.active {
+      .tab:hover {
         background: #132243;
         border-color: #2f4373;
       }
+      .tab.active {
+        background: linear-gradient(90deg, #1d2f56, #253d77);
+        border-color: #2f4373;
+      }
+
       .two-col {
         display: grid;
-        grid-template-columns: 1.1fr 1fr;
+        grid-template-columns: 1.15fr 0.85fr;
         gap: 14px;
       }
-      @media (max-width: 900px) {
+      @media (max-width: 980px) {
         .two-col {
           grid-template-columns: 1fr;
         }
       }
-      .toast {
-        position: fixed;
-        right: 16px;
-        bottom: 16px;
-        background: #111827;
-        color: #e5e7eb;
-        border: 1px solid #374151;
-        padding: 10px 14px;
+
+      .qr {
+        background: #fff;
+        padding: 8px;
         border-radius: 12px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-        opacity: 0;
-        transform: translateY(10px);
-        transition: 0.2s;
-      }
-      .toast.show {
-        opacity: 1;
-        transform: none;
+        display: inline-block;
       }
       .code {
         font-family: ui-monospace, Menlo, Consolas, monospace;
@@ -191,34 +392,173 @@
         padding: 6px 8px;
         color: #cbd5e1;
       }
+
+      .toast {
+        position: fixed;
+        right: 21px;
+        bottom: 55px;
+        background: rgba(17, 24, 39, 0.92);
+        -webkit-backdrop-filter: blur(6px);
+        backdrop-filter: blur(6px);
+        color: #e5e7eb;
+        border: 1px solid rgba(55, 65, 81, 0.7);
+        padding: 10px 14px;
+        border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        opacity: 0;
+        transform: translateY(10px);
+        transition: 0.2s;
+        z-index: 1000;
+      }
+      .toast.show {
+        opacity: 1;
+        transform: none;
+      }
+
+      .flex-1 {
+        flex: 1 1 240px;
+      }
+      .flex-2 {
+        flex: 2 1 320px;
+      }
+      .justify-end {
+        justify-content: flex-end;
+      }
+      .mt-6 {
+        margin-top: 6px;
+      }
+      .mt-8 {
+        margin-top: 8px;
+      }
+      .mt-10 {
+        margin-top: 10px;
+      }
+      .mt-12 {
+        margin-top: 12px;
+      }
+      .hidden {
+        display: none !important;
+      }
+      .block {
+        display: block;
+      }
+      .input-wide {
+        min-width: 0;
+      }
+
+      .sr-only {
+        position: absolute !important;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      /* ===== Footer ===== */
+      footer.site-footer {
+        position: block;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 1;
+        border-top: 1px solid var(--border);
+        -webkit-backdrop-filter: blur(10px) saturate(120%);
+        backdrop-filter: blur(10px) saturate(120%);
+        background: linear-gradient(
+            180deg,
+            rgba(255, 255, 255, 0.02),
+            rgba(255, 255, 255, 0.01)
+          ),
+          rgba(13, 19, 39, 0.55);
+      }
+      .footer-inner {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 10px 20px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .footer-links {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .footer-links a {
+        color: var(--text);
+        opacity: 0.8;
+        text-decoration: none;
+        border-bottom: 1px dashed transparent;
+      }
+      .footer-links a:hover {
+        opacity: 1;
+        border-color: rgba(96, 165, 250, 0.5);
+      }
     </style>
   </head>
   <body>
-    <div class="container">
-      <h1>Detopupin WhatsApp Console</h1>
+    <!-- Animated background layer -->
+    <div class="backdrop" aria-hidden="true">
+      <canvas id="netbg"></canvas>
+      <div class="grid-lines"></div>
+      <div class="cursor-glow"></div>
+    </div>
 
-      <div class="card">
+    <div class="container">
+      <div class="header">
+        <h1>
+          WhatsApp UI Console
+          <span
+            id="sockDot"
+            class="statusdot status-offline"
+            title="socket offline"
+          ></span>
+        </h1>
+        <div class="muted">Multi-session • REST • WebSocket</div>
+      </div>
+
+      <!-- Connect -->
+      <section class="card" aria-labelledby="connect-title">
+        <h3 id="connect-title" class="section-title">Koneksi</h3>
         <div class="row">
+          <label for="apiKey" class="sr-only">X-API-Key</label>
           <input
             id="apiKey"
+            class="flex-1"
             placeholder="X-API-Key (admin / user)"
-            style="flex: 1"
+            autocomplete="off"
           />
+
+          <label for="baseUrl" class="sr-only">Base URL</label>
           <input
             id="baseUrl"
+            class="flex-2"
             placeholder="Base URL (mis. http://localhost:4000)"
-            style="flex: 2"
+            autocomplete="off"
           />
-          <button id="btnLoad" class="btn-primary">Connect</button>
+
+          <button id="btnLoad" class="btn-primary" data-autofocus>
+            Connect
+          </button>
         </div>
-        <p class="muted">
+        <p class="muted mt-8">
           Gunakan <b>ADMIN_API_KEY</b> untuk manajemen sesi. User key untuk
           kirim pesan.
         </p>
-      </div>
+      </section>
 
-      <div class="card">
-        <h3 class="section-title">Create / Manage Session</h3>
+      <!-- Sessions -->
+      <section class="card" aria-labelledby="session-title">
+        <h3 id="session-title" class="section-title">
+          Create / Manage Session
+        </h3>
         <div class="row">
           <input id="sessId" placeholder="Session ID (opsional)" />
           <input id="whUrl" placeholder="Webhook URL (opsional)" />
@@ -229,10 +569,17 @@
           <button id="btnRefresh" disabled>List Sessions</button>
         </div>
 
-        <div class="two-col" style="margin-top: 10px">
+        <div class="two-col mt-10">
           <div>
             <div class="row">
-              <select id="sessionSelect" style="flex: 1">
+              <label for="sessionSelect" class="sr-only"
+                >Pilih sesi aktif</label
+              >
+              <select
+                id="sessionSelect"
+                aria-label="Pilih sesi aktif"
+                class="flex-1"
+              >
                 <option value="">-- pilih session --</option>
               </select>
               <button id="btnJoinQR" disabled>Join QR Room</button>
@@ -240,186 +587,257 @@
                 Delete Session
               </button>
             </div>
-            <div id="sessionInfo" class="muted" style="margin-top: 8px">
-              Belum ada info.
-            </div>
+            <div id="sessionInfo" class="muted mt-8">Belum ada info.</div>
           </div>
 
-          <div id="qrArea" style="display: none">
-            <h4>QR</h4>
+          <div id="qrArea" class="hidden">
+            <h4 class="mt-6">QR</h4>
             <div class="qr">
               <img id="qrImg" alt="QR Code" width="260" height="260" />
             </div>
-            <div id="qrMeta" class="muted" style="margin-top: 6px"></div>
+            <div id="qrMeta" class="muted mt-6"></div>
           </div>
         </div>
 
-        <div style="margin-top: 12px">
+        <div class="mt-12">
           <div id="sessions" class="grid"></div>
         </div>
-      </div>
+      </section>
 
-      <div class="card">
-        <h3 class="section-title">Messaging</h3>
-        <div class="tabs" id="tabs">
-          <div class="tab active" data-tab="text">Text</div>
-          <div class="tab" data-tab="media">Media</div>
-          <div class="tab" data-tab="location">Location</div>
-          <div class="tab" data-tab="buttons">Buttons</div>
-          <div class="tab" data-tab="list">List</div>
-          <div class="tab" data-tab="poll">Poll</div>
-          <div class="tab" data-tab="sticker">Sticker</div>
-          <div class="tab" data-tab="vcard">vCard</div>
-          <div class="tab" data-tab="gif">GIF</div>
+      <!-- Messaging -->
+      <section class="card" aria-labelledby="msg-title">
+        <h3 id="msg-title" class="section-title">Messaging</h3>
+        <div class="tabs" id="tabs" role="tablist" aria-label="Jenis pesan">
+          <div
+            class="tab active"
+            data-tab="text"
+            role="tab"
+            aria-selected="true"
+            tabindex="0"
+          >
+            Text
+          </div>
+          <div
+            class="tab"
+            data-tab="media"
+            role="tab"
+            aria-selected="false"
+            tabindex="0"
+          >
+            Media
+          </div>
+          <div
+            class="tab"
+            data-tab="location"
+            role="tab"
+            aria-selected="false"
+            tabindex="0"
+          >
+            Location
+          </div>
+          <div
+            class="tab"
+            data-tab="buttons"
+            role="tab"
+            aria-selected="false"
+            tabindex="0"
+          >
+            Buttons
+          </div>
+          <div
+            class="tab"
+            data-tab="list"
+            role="tab"
+            aria-selected="false"
+            tabindex="0"
+          >
+            List
+          </div>
+          <div
+            class="tab"
+            data-tab="poll"
+            role="tab"
+            aria-selected="false"
+            tabindex="0"
+          >
+            Poll
+          </div>
+          <div
+            class="tab"
+            data-tab="sticker"
+            role="tab"
+            aria-selected="false"
+            tabindex="0"
+          >
+            Sticker
+          </div>
+          <div
+            class="tab"
+            data-tab="vcard"
+            role="tab"
+            aria-selected="false"
+            tabindex="0"
+          >
+            vCard
+          </div>
+          <div
+            class="tab"
+            data-tab="gif"
+            role="tab"
+            aria-selected="false"
+            tabindex="0"
+          >
+            GIF
+          </div>
         </div>
 
+        <!-- Text -->
         <div class="tab-pane" id="pane-text">
           <div class="row">
-            <input id="t_to" placeholder="to (62xxxx)" style="flex: 1" />
+            <input id="t_to" placeholder="to (62xxxx)" class="flex-1" />
             <input
               id="t_mentions"
               placeholder="mentions (comma 62xxxx)"
-              style="flex: 1"
+              class="flex-1"
             />
           </div>
-          <div class="row" style="margin-top: 8px">
+          <div class="row mt-8">
             <textarea
               id="t_text"
               placeholder="text..."
-              style="flex: 1"
+              class="flex-1"
             ></textarea>
           </div>
-          <div class="row" style="justify-content: flex-end; margin-top: 8px">
+          <div class="row justify-end mt-8">
             <button id="btnSendText" class="btn-primary" disabled>
               Send Text
             </button>
           </div>
         </div>
 
-        <div class="tab-pane" id="pane-media" style="display: none">
+        <!-- Media -->
+        <div class="tab-pane hidden" id="pane-media">
           <div class="row">
-            <input id="m_to" placeholder="to (62xxxx)" style="flex: 1" />
-            <select id="m_type">
+            <input id="m_to" placeholder="to (62xxxx)" class="flex-1" />
+            <select id="m_type" aria-label="Media type">
               <option value="image">image</option>
               <option value="video">video</option>
               <option value="audio">audio (PTT)</option>
               <option value="document">document</option>
             </select>
           </div>
-          <div class="row" style="margin-top: 8px">
+          <div class="row mt-8">
             <input
               id="m_url"
               placeholder="mediaUrl (https://...)"
-              style="flex: 2"
+              class="flex-2"
             />
             <input
               id="m_caption"
               placeholder="caption (opsional)"
-              style="flex: 1"
+              class="flex-1"
             />
           </div>
-          <div class="row" style="justify-content: flex-end; margin-top: 8px">
+          <div class="row justify-end mt-8">
             <button id="btnSendMedia" class="btn-primary" disabled>
               Send Media
             </button>
           </div>
         </div>
 
-        <div class="tab-pane" id="pane-location" style="display: none">
+        <!-- Location -->
+        <div class="tab-pane hidden" id="pane-location">
           <div class="row">
-            <input id="loc_to" placeholder="to (62xxxx)" style="flex: 1" />
+            <input id="loc_to" placeholder="to (62xxxx)" class="flex-1" />
             <input id="loc_lat" placeholder="lat -6.917464" />
             <input id="loc_lng" placeholder="lng 107.619123" />
           </div>
-          <div class="row" style="margin-top: 8px">
-            <input
-              id="loc_name"
-              placeholder="name (opsional)"
-              style="flex: 1"
-            />
+          <div class="row mt-8">
+            <input id="loc_name" placeholder="name (opsional)" class="flex-1" />
             <input
               id="loc_addr"
               placeholder="address (opsional)"
-              style="flex: 2"
+              class="flex-2"
             />
           </div>
-          <div class="row" style="justify-content: flex-end; margin-top: 8px">
+          <div class="row justify-end mt-8">
             <button id="btnSendLocation" class="btn-primary" disabled>
               Send Location
             </button>
           </div>
         </div>
 
-        <div class="tab-pane" id="pane-buttons" style="display: none">
+        <!-- Buttons -->
+        <div class="tab-pane hidden" id="pane-buttons">
           <div class="row">
-            <input id="b_to" placeholder="to (62xxxx)" style="flex: 1" />
+            <input id="b_to" placeholder="to (62xxxx)" class="flex-1" />
             <input
               id="b_footer"
               placeholder="footer (opsional)"
-              style="flex: 1"
+              class="flex-1"
             />
           </div>
-          <div class="row" style="margin-top: 8px">
+          <div class="row mt-8">
             <textarea
               id="b_text"
               placeholder="text..."
-              style="flex: 1"
+              class="flex-1"
             ></textarea>
           </div>
-          <div class="row" style="margin-top: 8px">
+          <div class="row mt-8">
             <input id="b_btn1" placeholder="Button 1 text" />
             <input id="b_btn2" placeholder="Button 2 text" />
             <input id="b_btn3" placeholder="Button 3 text" />
           </div>
-          <div class="row" style="justify-content: flex-end; margin-top: 8px">
+          <div class="row justify-end mt-8">
             <button id="btnSendButtons" class="btn-primary" disabled>
               Send Buttons
             </button>
           </div>
-          <div class="muted code" style="margin-top: 8px">
-            Buttons = quick replies (3 max)
-          </div>
+          <div class="muted code mt-8">Buttons = quick replies (3 max)</div>
         </div>
 
-        <div class="tab-pane" id="pane-list" style="display: none">
+        <!-- List -->
+        <div class="tab-pane hidden" id="pane-list">
           <div class="row">
-            <input id="l_to" placeholder="to (62xxxx)" style="flex: 1" />
+            <input id="l_to" placeholder="to (62xxxx)" class="flex-1" />
             <input id="l_title" placeholder="title" />
             <input
               id="l_buttonText"
               placeholder="button text (default: Open)"
             />
           </div>
-          <div class="row" style="margin-top: 8px">
+          <div class="row mt-8">
             <textarea
               id="l_text"
               placeholder="text..."
-              style="flex: 1"
+              class="flex-1"
             ></textarea>
             <input
               id="l_footer"
               placeholder="footer (opsional)"
-              style="flex: 1"
+              class="flex-1"
             />
           </div>
-          <div class="row" style="margin-top: 8px">
+          <div class="row mt-8">
             <textarea
               id="l_sections"
               placeholder="sections JSON"
-              style="flex: 1"
+              class="flex-1"
             ></textarea>
           </div>
-          <div class="row" style="justify-content: flex-end; margin-top: 8px">
+          <div class="row justify-end mt-8">
             <button id="btnSendList" class="btn-primary" disabled>
               Send List
             </button>
           </div>
         </div>
 
-        <div class="tab-pane" id="pane-poll" style="display: none">
+        <!-- Poll -->
+        <div class="tab-pane hidden" id="pane-poll">
           <div class="row">
-            <input id="p_to" placeholder="to (62xxxx)" style="flex: 1" />
-            <input id="p_name" placeholder="poll title" style="flex: 1" />
+            <input id="p_to" placeholder="to (62xxxx)" class="flex-1" />
+            <input id="p_name" placeholder="poll title" class="flex-1" />
             <input
               id="p_selectable"
               type="number"
@@ -429,92 +847,370 @@
               style="max-width: 200px"
             />
           </div>
-          <div class="row" style="margin-top: 8px">
+          <div class="row mt-8">
             <input
               id="p_options"
               placeholder="options (comma separated)"
-              style="flex: 1"
+              class="flex-1"
             />
           </div>
-          <div class="row" style="justify-content: flex-end; margin-top: 8px">
+          <div class="row justify-end mt-8">
             <button id="btnSendPoll" class="btn-primary" disabled>
               Send Poll
             </button>
           </div>
         </div>
 
-        <div class="tab-pane" id="pane-sticker" style="display: none">
+        <!-- Sticker -->
+        <div class="tab-pane hidden" id="pane-sticker">
           <div class="row">
-            <input id="s_to" placeholder="to (62xxxx)" style="flex: 1" />
+            <input id="s_to" placeholder="to (62xxxx)" class="flex-1" />
             <input
               id="s_imageUrl"
               placeholder="imageUrl OR webpUrl (https://...)"
-              style="flex: 2"
+              class="flex-2"
             />
           </div>
-          <div class="row" style="justify-content: flex-end; margin-top: 8px">
+          <div class="row justify-end mt-8">
             <button id="btnSendSticker" class="btn-primary" disabled>
               Send Sticker
             </button>
           </div>
-          <div class="muted code" style="margin-top: 8px">
-            Akan di-convert ke WebP 512×512 (sharp) di server.
+          <div class="muted code mt-8">
+            Akan otomatis diconvert ke WebP 512×512 .
           </div>
         </div>
 
-        <div class="tab-pane" id="pane-vcard" style="display: none">
+        <!-- vCard -->
+        <div class="tab-pane hidden" id="pane-vcard">
           <div class="row">
-            <input id="vc_to" placeholder="to (62xxxx)" style="flex: 1" />
+            <input id="vc_to" placeholder="to (62xxxx)" class="flex-1" />
             <input id="vc_full" placeholder="Full Name" />
             <input id="vc_org" placeholder="Org (opsional)" />
           </div>
-          <div class="row" style="margin-top: 8px">
+          <div class="row mt-8">
             <input id="vc_phone" placeholder="Phone 62xxxx" />
             <input id="vc_email" placeholder="Email (opsional)" />
           </div>
-          <div class="row" style="justify-content: flex-end; margin-top: 8px">
+          <div class="row justify-end mt-8">
             <button id="btnSendVcard" class="btn-primary" disabled>
               Send vCard
             </button>
           </div>
         </div>
 
-        <div class="tab-pane" id="pane-gif" style="display: none">
+        <!-- GIF -->
+        <div class="tab-pane hidden" id="pane-gif">
           <div class="row">
-            <input id="g_to" placeholder="to (62xxxx)" style="flex: 1" />
+            <input id="g_to" placeholder="to (62xxxx)" class="flex-1" />
             <input
               id="g_videoUrl"
               placeholder="videoUrl (https://...mp4)"
-              style="flex: 2"
+              class="flex-2"
             />
           </div>
-          <div class="row" style="margin-top: 8px">
+          <div class="row mt-8">
             <input
               id="g_caption"
               placeholder="caption (opsional)"
-              style="flex: 1"
+              class="flex-1"
             />
           </div>
-          <div class="row" style="justify-content: flex-end; margin-top: 8px">
+          <div class="row justify-end mt-8">
             <button id="btnSendGif" class="btn-primary" disabled>
               Send GIF
             </button>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div class="card">
-        <h3 class="section-title">Health</h3>
+      <!-- Health -->
+      <section class="card" aria-labelledby="health-title">
+        <h3 id="health-title" class="section-title">Health</h3>
         <div class="row">
           <button id="btnHealth" disabled>Check</button>
-          <span id="healthBadge" class="badge"></span>
+          <span id="healthBadge" class="badge" style="display: none"></span>
         </div>
-      </div>
+      </section>
     </div>
+
+    <footer class="site-footer" role="contentinfo">
+      <div class="footer-inner">
+        <div>© <span id="year"></span> WhatsApp UI Console</div>
+        <nav class="footer-links" aria-label="Footer links">
+          <a href="/health" target="_blank" rel="noopener noreferrer">Health</a>
+          <a href="/health/live" target="_blank" rel="noopener noreferrer"
+            >Live</a
+          >
+          <a href="/health/ready" target="_blank" rel="noopener noreferrer"
+            >Ready</a
+          >
+          <a href="/ui" aria-current="page">UI</a>
+        </nav>
+      </div>
+    </footer>
+
+    <div
+      class="toast"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    ></div>
+
+    <script>
+      (function () {
+        "use strict";
+        const root = document.documentElement;
+        const set = (x, y) => {
+          root.style.setProperty("--mx", x + "px");
+          root.style.setProperty("--my", y + "px");
+        };
+        document.addEventListener("mousemove", (e) =>
+          set(e.clientX, e.clientY)
+        );
+        document.addEventListener(
+          "touchmove",
+          (e) => {
+            const t = e.touches && e.touches[0];
+            if (t) set(t.clientX, t.clientY);
+          },
+          { passive: true }
+        );
+        document.addEventListener("DOMContentLoaded", () => {
+          document.getElementById("year").textContent = new Date()
+            .getFullYear()
+            .toString();
+        });
+      })();
+    </script>
+
+    <script>
+      (function () {
+        "use strict";
+
+        const canvas = document.getElementById("netbg");
+        if (!canvas) return;
+
+        const ctx = canvas.getContext("2d", { alpha: true });
+        const DPR = Math.max(1, Math.min(window.devicePixelRatio || 1, 2)); // cap DPR untuk perf
+
+        let W = 0,
+          H = 0;
+        let particles = [];
+        let rafId = 0;
+        let lastTs = 0;
+
+        // Cursor target (pointer moves this)
+        const cursor = { x: null, y: null, active: false };
+
+        // Konfigurasi
+        const cfg = {
+          baseDensity: 0.000082,
+          maxCount: 220, // pagu agar tidak kebablasan
+          mobileScale: 0.55, // density scaling utk mobile
+          linkDist: 189, // jarak maksimal untuk garis
+          linkAlpha: 0.48, // opacity garis
+          nodeSize: [1.0, 2.1], // rentang radius node (px)
+          nodeAlpha: 0.8, // opacity node
+          speed: 0.18, // kecepatan partikel
+          hoverInfluence: 140, // radius pengaruh kursor
+          hoverForce: 0.06, // kekuatan dorong/geser
+          parallax: 0.015, // sedikit parallax pada node
+          lineWidth: 2.0, // tebal garis
+        };
+
+        // Deteksi mobile sederhana
+        const isMobile = matchMedia("(max-width: 768px)").matches;
+
+        function resize() {
+          const { clientWidth, clientHeight } = canvas.parentElement;
+          W = Math.max(1, clientWidth);
+          H = Math.max(1, clientHeight);
+
+          canvas.width = Math.floor(W * DPR);
+          canvas.height = Math.floor(H * DPR);
+          canvas.style.width = W + "px";
+          canvas.style.height = H + "px";
+          ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+          const scale = isMobile ? cfg.mobileScale : 1;
+          const targetCount = Math.min(
+            Math.floor(W * H * cfg.baseDensity * scale),
+            cfg.maxCount
+          );
+
+          if (particles.length < targetCount) {
+            const need = targetCount - particles.length;
+            for (let i = 0; i < need; i++) particles.push(makeParticle());
+          } else if (particles.length > targetCount) {
+            particles.length = targetCount;
+          }
+        }
+
+        function rand(min, max) {
+          return min + Math.random() * (max - min);
+        }
+
+        function makeParticle() {
+          const r = rand(cfg.nodeSize[0], cfg.nodeSize[1]);
+          const speed = cfg.speed * (0.6 + Math.random() * 0.8);
+          const ang = Math.random() * Math.PI * 2;
+          const vx = Math.cos(ang) * speed;
+          const vy = Math.sin(ang) * speed;
+
+          return {
+            x: Math.random() * W,
+            y: Math.random() * H,
+            vx,
+            vy,
+            r,
+            a: cfg.nodeAlpha * (0.75 + Math.random() * 0.25),
+          };
+        }
+
+        function step(dt) {
+          for (let i = 0; i < particles.length; i++) {
+            const p = particles[i];
+
+            if (cursor.active && cursor.x != null && cursor.y != null) {
+              const dx = p.x - cursor.x;
+              const dy = p.y - cursor.y;
+              const d2 = dx * dx + dy * dy;
+              const r = cfg.hoverInfluence;
+              if (d2 < r * r && d2 > 0.001) {
+                const d = Math.sqrt(d2);
+                const force = cfg.hoverForce * (1 - d / r);
+                p.vx += (dx / d) * force * dt * 60; // normalisasi dt
+                p.vy += (dy / d) * force * dt * 60;
+              }
+            }
+
+            p.x += p.vx * dt * 60;
+            p.y += p.vy * dt * 60;
+
+            if (cursor.active) {
+              p.x -= (cursor.x - W * 0.5) * cfg.parallax * dt;
+              p.y -= (cursor.y - H * 0.5) * cfg.parallax * dt;
+            }
+
+            // Bounce tepi
+            if (p.x < -10) {
+              p.x = -10;
+              p.vx *= -1;
+            }
+            if (p.x > W + 10) {
+              p.x = W + 10;
+              p.vx *= -1;
+            }
+            if (p.y < -10) {
+              p.y = -10;
+              p.vy *= -1;
+            }
+            if (p.y > H + 10) {
+              p.y = H + 10;
+              p.vy *= -1;
+            }
+          }
+        }
+
+        function draw() {
+          ctx.clearRect(0, 0, W, H);
+
+          // Garis koneksi
+          ctx.lineWidth = cfg.lineWidth;
+          ctx.strokeStyle = `rgba(255,255,255,${cfg.linkAlpha})`;
+
+          for (let i = 0; i < particles.length; i++) {
+            const p = particles[i];
+
+            for (let j = i + 1; j < particles.length; j++) {
+              const q = particles[j];
+              const dx = p.x - q.x;
+              const dy = p.y - q.y;
+              const d2 = dx * dx + dy * dy;
+              if (d2 <= cfg.linkDist * cfg.linkDist) {
+                const d = Math.sqrt(d2);
+                const a = cfg.linkAlpha * (1 - d / cfg.linkDist);
+                ctx.globalAlpha = a;
+                ctx.beginPath();
+                ctx.moveTo(p.x, p.y);
+                ctx.lineTo(q.x, q.y);
+                ctx.stroke();
+              }
+            }
+          }
+          ctx.globalAlpha = 1;
+
+          for (let i = 0; i < particles.length; i++) {
+            const p = particles[i];
+            ctx.fillStyle = "rgba(255,255,255,0.06)";
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.r * 3, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = `rgba(255,255,255,${p.a})`;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+
+        function loop(ts) {
+          rafId = requestAnimationFrame(loop);
+          if (!lastTs) lastTs = ts;
+          const dt = Math.min(0.05, (ts - lastTs) / 1000); // cap 50ms
+          lastTs = ts;
+
+          step(dt);
+          draw();
+        }
+
+        // Events
+        function onMove(e) {
+          const rect = canvas.getBoundingClientRect();
+          let x, y;
+          if (e.touches && e.touches[0]) {
+            x = e.touches[0].clientX - rect.left;
+            y = e.touches[0].clientY - rect.top;
+          } else {
+            x = e.clientX - rect.left;
+            y = e.clientY - rect.top;
+          }
+          cursor.x = x;
+          cursor.y = y;
+          cursor.active = true;
+        }
+        function onLeave() {
+          cursor.active = false;
+        }
+
+        window.addEventListener("resize", resize, { passive: true });
+        window.addEventListener("orientationchange", resize, { passive: true });
+
+        document.addEventListener("mousemove", onMove, { passive: true });
+        document.addEventListener("touchmove", onMove, { passive: true });
+        document.addEventListener("mouseleave", onLeave, { passive: true });
+        document.addEventListener("touchend", onLeave, { passive: true });
+
+        document.addEventListener("visibilitychange", () => {
+          if (document.hidden) {
+            cancelAnimationFrame(rafId);
+            rafId = 0;
+            lastTs = 0;
+          } else {
+            lastTs = 0;
+            rafId = requestAnimationFrame(loop);
+          }
+        });
+
+        resize();
+        rafId = requestAnimationFrame(loop);
+      })();
+    </script>
 
     <!-- Socket.IO client -->
     <script src="/socket.io/socket.io.js"></script>
-    <!-- App JS -->
+    <!-- App JS (tetap gunakan file existing) -->
     <script src="/ui/app.js"></script>
   </body>
 </html>

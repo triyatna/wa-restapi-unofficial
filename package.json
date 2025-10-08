@@ -38,7 +38,8 @@
   },
   "nodemonConfig": {
     "ignore": [
-      "credentials/*"
+      "credentials/*",
+      "data/*"
     ]
   },
   "devDependencies": {

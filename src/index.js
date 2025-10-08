@@ -10,6 +10,7 @@ import { config } from "./config.js";
 import { logger } from "./logger.js";
 import { errorHandler } from "./middleware/error.js";
 
+// Routes
 import health from "./routes/health.js";
 import admin from "./routes/admin.js";
 import sessions from "./routes/sessions.js";
@@ -17,6 +18,11 @@ import messages from "./routes/messages.js";
 import mediaBinary from "./routes/media-file.js";
 import webhooks from "./routes/webhooks.js";
 import qr from "./routes/qr.js";
+import ui from "./routes/ui.js";
+
+// Registry & sessions bootstrap
+import { loadRegistry } from "./whatsapp/sessionRegistry.js";
+import { bootstrapSessions } from "./whatsapp/baileysClient.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -64,30 +70,33 @@ app.use(
 import { apiKeyAuth } from "./middleware/auth.js";
 import { dynamicRateLimit } from "./middleware/ratelimit.js";
 import { antiSpam } from "./middleware/antispam.js";
+
+// Endpoint binary/multipart multi-file:
+//   /api/messages/media/file (raw & multipart)
+// diproteksi auth/ratelimit/antispam sama seperti messages lain.
 app.use(
   "/api/messages",
   apiKeyAuth("user"),
   dynamicRateLimit(),
   antiSpam(),
-  mediaBinary // route /api/messages/media/file (raw & multipart)
+  mediaBinary
 );
 
 // ====== Parser JSON umum ======
 app.use(express.json({ limit: "2mb" }));
 
 // ====== Static UI & utils ======
-import ui from "./routes/ui.js";
-app.use("/ui", ui);
-app.use("/utils", qr);
+app.use("/ui", ui); // serve UI
+app.use("/utils", qr); // /utils/qr.png?data=...
 
 // ====== API lain (pakai JSON) ======
 app.use("/health", health);
 app.use("/api/admin", admin);
 app.use("/api/sessions", sessions);
-app.use("/api/messages", messages); // rute /text, /media (via URL), /location, dll.
+app.use("/api/messages", messages); // /text, /media(url), /location, /buttons, /list, /poll, /sticker, /vcard, /gif, etc.
 app.use("/api/webhooks", webhooks);
 
-// error handler terakhir
+// ====== Error handler terakhir ======
 app.use(errorHandler);
 
 // ====== HTTP + Socket.IO ======
@@ -101,19 +110,63 @@ const io = new Server(server, {
 });
 app.set("io", io);
 
+// (Opsional) buat global reference agar modul lain (mis. baileysClient) bisa emit event tanpa circular dep
+globalThis.__io = io;
+
+// Auth Socket.IO sederhana via X-API-Key
 io.use((socket, next) => {
   const key =
     socket.handshake.auth?.apiKey || socket.handshake.headers["x-api-key"];
   if (!key) return next(new Error("Missing X-API-Key"));
-  // TODO: validasi key (admin/user) bila perlu
+  // TODO: validasi role admin/user jika diperlukan
   next();
 });
 io.on("connection", (socket) => {
   socket.on("join", ({ room }) => socket.join(room));
 });
 
-// Start
-server.listen(config.port, config.host, () => {
-  logger.info(`WA API listening on http://${config.host}:${config.port}`);
-  logger.info(`UI: http://${config.host}:${config.port}/ui`);
-});
+// ====== BOOTSTRAP ======
+(async () => {
+  try {
+    // load registry dari disk
+    loadRegistry();
+
+    // autostart semua sessions yg autoStart=true (pake kredensial di credentials/)
+    await bootstrapSessions(io);
+
+    // // Jika belum punya bootstrapSessions(), pakai fallback:
+    // const metas = listSessionMeta();
+    // for (const m of metas) {
+    //   if (m.autoStart === false) continue;
+    //   await startSession({ id: m.id, webhookUrl: m.webhookUrl, webhookSecret: m.webhookSecret })
+    //     .catch(e => logger.error(e, "[autostart] failed " + m.id));
+    // }
+
+    // start server
+    server.listen(config.port, config.host, () => {
+      logger.info(`WA API listening on http://${config.host}:${config.port}`);
+      logger.info(`UI: http://${config.host}:${config.port}/ui`);
+    });
+  } catch (e) {
+    logger.error(e, "Fatal during bootstrap");
+    process.exit(1);
+  }
+})();
+
+const shutdown = (signal) => {
+  return () => {
+    logger.info(`${signal} received, shutting down...`);
+    try {
+      io?.close?.();
+      server?.close?.(() => {
+        logger.info("HTTP server closed");
+        process.exit(0);
+      });
+      setTimeout(() => process.exit(0), 3000).unref();
+    } catch {
+      process.exit(0);
+    }
+  };
+};
+process.on("SIGINT", shutdown("SIGINT"));
+process.on("SIGTERM", shutdown("SIGTERM"));
