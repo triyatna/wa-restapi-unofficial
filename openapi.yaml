@@ -1,0 +1,841 @@
+openapi: 3.0.3
+info:
+  title: WARest API
+  version: "1.0.0"
+  description: |
+    Multi-session WhatsApp REST API + WebSocket.
+
+    ## Auth
+    Semua endpoint memakai `X-API-Key` di header.  
+    - **Admin**: `ADMIN_API_KEY` (akses penuh, termasuk manajemen sesi & admin endpoints).  
+    - **User**: salah satu `USER_API_KEYS` (hanya kirim pesan & baca sesi miliknya).
+
+    ## Role
+    - Endpoints bertanda **(Admin only)** akan menolak API key user.
+
+    ## Rate Limit & Anti-Spam
+    Server menerapkan dynamic rate limit & anti-spam. Saat limit tercapai akan mengembalikan **429**. Respons dapat menyertakan header:
+    - `X-RateLimit-Limit`
+    - `X-RateLimit-Remaining`
+    - `X-RateLimit-Reset`
+
+servers:
+  - url: http://localhost:4000
+    description: Local
+  - url: https://{host}
+    description: Production
+    variables:
+      host:
+        default: api.example.com
+
+tags:
+  - name: Health
+  - name: Sessions
+  - name: Messages
+  - name: Admin
+  - name: Webhooks
+  - name: Utils
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /health/live:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      responses:
+        "200":
+          description: OK
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Readiness probe
+      responses:
+        "200":
+          description: OK
+
+  /api/sessions:
+    get:
+      tags: [Sessions]
+      summary: List sessions
+      description: |
+        Kembalikan semua sesi yang sedang terdaftar.  
+        *(Admin dapat melihat semua; user diharapkan hanya melihat miliknya — sesuai implementasi server.)*
+      responses:
+        "200":
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SessionItem"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+      x-codeSamples:
+        - lang: curl
+          label: curl
+          source: |
+            curl -H "X-API-Key: $API_KEY" "$BASE_URL/api/sessions"
+    post:
+      tags: [Sessions]
+      summary: Create/Start session (Admin only)
+      description: |
+        Mulai sesi baru. **Admin only**.  
+        Jika `id` kosong, server dapat membuat ID otomatis.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                  example: marketing-01
+                webhookUrl:
+                  type: string
+                  format: uri
+                webhookSecret:
+                  type: string
+      responses:
+        "200":
+          description: Session started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  status: { type: string, example: "pending" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+      x-codeSamples:
+        - lang: curl
+          label: curl
+          source: |
+            curl -X POST -H "Content-Type: application/json" \
+                 -H "X-API-Key: $ADMIN_KEY" \
+                 -d '{"id":"marketing-01","webhookUrl":"https://hook.example.com/wa","webhookSecret":"supersecret"}' \
+                 "$BASE_URL/api/sessions"
+
+  /api/sessions/{id}:
+    get:
+      tags: [Sessions]
+      summary: Get session detail
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Session detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionDetail"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+      x-codeSamples:
+        - lang: curl
+          label: curl
+          source: |
+            curl -H "X-API-Key: $API_KEY" "$BASE_URL/api/sessions/my-session"
+    delete:
+      tags: [Sessions]
+      summary: Delete/Stop/Purge session (Admin only)
+      description: |
+        Hentikan runtime dan/atau hapus kredensial/meta. **Admin only**.  
+        - `mode=runtime` → stop socket (default)  
+        - `mode=creds` → hapus folder kredensial  
+        - `mode=meta` → hapus dari registry  
+        - `mode=all` → semuanya
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: mode
+          schema:
+            type: string
+            enum: [runtime, creds, meta, all]
+            default: runtime
+      responses:
+        "200":
+          description: Delete result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  id: { type: string }
+                  mode: { type: string }
+                  steps:
+                    type: object
+                    additionalProperties: true
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+      x-codeSamples:
+        - lang: curl
+          label: curl
+          source: |
+            curl -X DELETE -H "X-API-Key: $ADMIN_KEY" \
+                 "$BASE_URL/api/sessions/my-session?mode=all"
+
+  /api/messages/text:
+    post:
+      tags: [Messages]
+      summary: Send text message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TextMessageRequest"
+      responses:
+        "200":
+          description: Sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageAck"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+      x-codeSamples:
+        - lang: curl
+          label: curl
+          source: |
+            curl -X POST -H "Content-Type: application/json" -H "X-API-Key: $API_KEY" \
+                 -d '{"sessionId":"my-session","to":"62812xxxxxx","text":"Hello!"}' \
+                 "$BASE_URL/api/messages/text"
+
+  /api/messages/media:
+    post:
+      tags: [Messages]
+      summary: Send media (by URL)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MediaByUrlRequest"
+      responses:
+        "200":
+          description: Sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageAck"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /api/messages/media/file:
+    post:
+      tags: [Messages]
+      summary: Send media (upload file)
+      description: Menerima **multipart/form-data** *atau* raw `application/octet-stream`.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/MediaUploadMultipart"
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageAck"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /api/messages/location:
+    post:
+      tags: [Messages]
+      summary: Send location
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocationMessageRequest"
+      responses:
+        "200":
+          description: Sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageAck"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /api/messages/buttons:
+    post:
+      tags: [Messages]
+      summary: Send quick-reply buttons (max 3)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ButtonsMessageRequest"
+      responses:
+        "200":
+          description: Sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageAck"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /api/messages/list:
+    post:
+      tags: [Messages]
+      summary: Send list message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListMessageRequest"
+      responses:
+        "200":
+          description: Sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageAck"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /api/messages/poll:
+    post:
+      tags: [Messages]
+      summary: Send poll
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PollMessageRequest"
+      responses:
+        "200":
+          description: Sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageAck"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /api/messages/sticker:
+    post:
+      tags: [Messages]
+      summary: Send sticker (auto convert to webp)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StickerMessageRequest"
+      responses:
+        "200":
+          description: Sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageAck"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /api/messages/vcard:
+    post:
+      tags: [Messages]
+      summary: Send vCard contact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VcardMessageRequest"
+      responses:
+        "200":
+          description: Sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageAck"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /api/messages/gif:
+    post:
+      tags: [Messages]
+      summary: Send GIF/Video as animated message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GifMessageRequest"
+      responses:
+        "200":
+          description: Sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageAck"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /api/admin/config:
+    get:
+      tags: [Admin]
+      summary: Get server admin config (Admin only)
+      responses:
+        "200":
+          description: Current admin config
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rateLimit:
+                    $ref: "#/components/schemas/RateLimitConfig"
+                  webhookDefault:
+                    $ref: "#/components/schemas/WebhookDefault"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/admin/ratelimit:
+    post:
+      tags: [Admin]
+      summary: Update rate limit window & max (Admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminRateLimitUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  rateLimit: { $ref: "#/components/schemas/RateLimitConfig" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/admin/webhook-default:
+    post:
+      tags: [Admin]
+      summary: Update default webhook url & secret (Admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookDefaultUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  webhookDefault:
+                    { $ref: "#/components/schemas/WebhookDefault" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/webhooks/configure:
+    post:
+      tags: [Webhooks]
+      summary: Configure webhook for a session
+      description: |
+        Set/override webhook di level sesi. **User & Admin** dapat memanggil.  
+        Server hanya menyimpan konfigurasi; pengiriman event ke `url` ini dilakukan oleh runtime.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookConfigureRequest"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  webhook:
+                    $ref: "#/components/schemas/WebhookConfig"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /utils/qr.png:
+    get:
+      tags: [Utils]
+      summary: Render QR image from `data` query
+      parameters:
+        - in: query
+          required: true
+          name: data
+          schema: { type: string }
+      responses:
+        "200":
+          description: PNG image
+          content:
+            image/png: {}
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+  responses:
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    ServerError:
+      description: Server error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    TooManyRequests:
+      description: Rate limited
+      headers:
+        X-RateLimit-Limit:
+          schema: { type: integer }
+        X-RateLimit-Remaining:
+          schema: { type: integer }
+        X-RateLimit-Reset:
+          schema: { type: integer, description: Unix epoch seconds }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  schemas:
+    Health:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+
+    SessionItem:
+      type: object
+      properties:
+        id: { type: string, example: "marketing-01" }
+        status: { type: string, example: "pending" }
+        me:
+          type: object
+          nullable: true
+          description: Data akun saat sudah login (bisa null bila belum login)
+          additionalProperties: true
+
+    SessionDetail:
+      type: object
+      properties:
+        id: { type: string }
+        status: { type: string, example: "open" }
+        me:
+          type: object
+          nullable: true
+          additionalProperties: true
+        qr:
+          type: string
+          nullable: true
+          description: QR string bila tersedia
+        lastConn:
+          type: string
+          format: date-time
+          nullable: true
+
+    MessageAck:
+      type: object
+      properties:
+        ok: { type: boolean, example: true }
+        id:
+          {
+            type: string,
+            description: "Message id (jika tersedia)",
+            nullable: true,
+          }
+
+    TextMessageRequest:
+      type: object
+      required: [sessionId, to, text]
+      properties:
+        sessionId: { type: string }
+        to: { type: string, example: "62812xxxxxxx" }
+        text: { type: string }
+        mentions:
+          type: array
+          items: { type: string }
+
+    MediaByUrlRequest:
+      type: object
+      required: [sessionId, to, mediaType, mediaUrl]
+      properties:
+        sessionId: { type: string }
+        to: { type: string }
+        mediaType:
+          type: string
+          enum: [image, video, audio, document]
+        mediaUrl:
+          type: string
+          format: uri
+        caption:
+          type: string
+
+    MediaUploadMultipart:
+      type: object
+      required: [sessionId, to, mediaType, file]
+      properties:
+        sessionId: { type: string }
+        to: { type: string }
+        mediaType:
+          type: string
+          enum: [image, video, audio, document]
+        caption:
+          type: string
+        file:
+          type: string
+          format: binary
+
+    LocationMessageRequest:
+      type: object
+      required: [sessionId, to, lat, lng]
+      properties:
+        sessionId: { type: string }
+        to: { type: string }
+        lat: { type: number, example: -6.917464 }
+        lng: { type: number, example: 107.619123 }
+        name: { type: string }
+        address: { type: string }
+
+    ButtonsMessageRequest:
+      type: object
+      required: [sessionId, to, text, buttons]
+      properties:
+        sessionId: { type: string }
+        to: { type: string }
+        text: { type: string }
+        footer: { type: string }
+        buttons:
+          type: array
+          maxItems: 3
+          items:
+            type: object
+            required: [id, text]
+            properties:
+              id: { type: string, example: "btn_1" }
+              text: { type: string, example: "Yes" }
+
+    ListMessageRequest:
+      type: object
+      required: [sessionId, to, title, text, buttonText, sections]
+      properties:
+        sessionId: { type: string }
+        to: { type: string }
+        title: { type: string }
+        text: { type: string }
+        footer: { type: string }
+        buttonText: { type: string, example: "Open" }
+        sections:
+          type: array
+          items:
+            type: object
+            required: [title, rows]
+            properties:
+              title: { type: string }
+              rows:
+                type: array
+                items:
+                  type: object
+                  required: [id, title]
+                  properties:
+                    id: { type: string }
+                    title: { type: string }
+                    description: { type: string }
+
+    PollMessageRequest:
+      type: object
+      required: [sessionId, to, name, options]
+      properties:
+        sessionId: { type: string }
+        to: { type: string }
+        name: { type: string }
+        options:
+          type: array
+          items: { type: string }
+        selectableCount:
+          type: integer
+          minimum: 1
+          default: 1
+
+    StickerMessageRequest:
+      type: object
+      required: [sessionId, to, imageUrl]
+      properties:
+        sessionId: { type: string }
+        to: { type: string }
+        imageUrl:
+          type: string
+          format: uri
+          description: URL gambar yang akan dikonversi ke WebP
+
+    VcardMessageRequest:
+      type: object
+      required: [sessionId, to, contact]
+      properties:
+        sessionId: { type: string }
+        to: { type: string }
+        contact:
+          type: object
+          required: [fullName, phone]
+          properties:
+            fullName: { type: string }
+            org: { type: string }
+            phone: { type: string }
+            email: { type: string }
+
+    GifMessageRequest:
+      type: object
+      required: [sessionId, to, videoUrl]
+      properties:
+        sessionId: { type: string }
+        to: { type: string }
+        videoUrl:
+          type: string
+          format: uri
+        caption: { type: string }
+
+    RateLimitConfig:
+      type: object
+      properties:
+        windowMs: { type: integer, example: 60000 }
+        max: { type: integer, example: 120 }
+
+    WebhookDefault:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          nullable: true
+        secret:
+          type: string
+
+    AdminRateLimitUpdate:
+      type: object
+      properties:
+        windowMs: { type: integer }
+        max: { type: integer }
+
+    WebhookDefaultUpdate:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        secret: { type: string }
+
+    WebhookConfigureRequest:
+      type: object
+      required: [sessionId, url]
+      properties:
+        sessionId: { type: string }
+        url:
+          type: string
+          format: uri
+        secret:
+          type: string
+        enabled:
+          type: boolean
+          default: true
+
+    WebhookConfig:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        secret: { type: string }
+        enabled: { type: boolean }
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Invalid X-API-Key

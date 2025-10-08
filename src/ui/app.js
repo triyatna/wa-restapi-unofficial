@@ -57,7 +57,6 @@ function gateButtons(disabled) {
   const ids = [
     "btnCreate",
     "btnRefresh",
-    "btnJoinQR",
     "btnDeleteSess",
     "btnSendText",
     "btnSendMedia",
@@ -82,7 +81,7 @@ function setQRPanelActive(active) {
   const qrWrap = document.getElementById("qrWrap");
   if (!split || !qrWrap) return;
   qrWrap.classList.toggle("hidden", !active);
-  split.classList.toggle("no-qr", !active); // no-qr => 1 kolom
+  split.classList.toggle("no-qr", !active); // no-qr => 1 kolom (melebar)
 }
 
 /** Tampilkan/sembunyikan area QR + bersihkan kontennya saat off */
@@ -90,17 +89,15 @@ function setQRVisible(flag) {
   const area = el("qrArea");
   if (!area) return;
   setQRPanelActive(flag);
+  const img = el("qrImg");
+  const meta = el("qrMeta");
 
   if (!flag) {
-    const img = el("qrImg");
     if (img) img.src = "";
-    const meta = el("qrMeta");
     if (meta) meta.textContent = "";
     area.classList.add("hidden");
     return;
   }
-
-  // ON: pastikan terlihat
   area.classList.remove("hidden");
 }
 
@@ -179,7 +176,6 @@ function fillSessionSelect(items) {
     sel.appendChild(opt);
   });
 
-  // fallback ke old kalau currentSessionId kosong tapi old masih ada
   if (!currentSessionId && items.some((x) => x.id === old)) sel.value = old;
 }
 
@@ -245,9 +241,7 @@ function connectSocket({ silent = false } = {}) {
       setConnectedUI(true);
       if (!silent) toast("Socket connected");
 
-      if (currentSessionId) {
-        ioClient.emit("join", { room: currentSessionId });
-      }
+      if (currentSessionId) ioClient.emit("join", { room: currentSessionId });
       el("btnRefresh")?.click();
     });
 
@@ -299,12 +293,8 @@ function connectSocket({ silent = false } = {}) {
 
     ioClient.on("ready", ({ id }) => {
       if (id !== currentSessionId) return;
+      // sudah linked: sembunyikan QR dan tombol Join QR di kartu aktif
       setQRVisible(false);
-      const joinBtn = el("btnJoinQR");
-      if (joinBtn) {
-        joinBtn.style.display = "none";
-        joinBtn.disabled = true;
-      }
       el("btnRefresh")?.click();
     });
 
@@ -439,6 +429,7 @@ async function apiDeleteSession(id, mode = "runtime") {
 
 /* ====== Sessions ====== */
 function attachSessionCardsHandlers(wrap) {
+  // Delete di kartu
   wrap.querySelectorAll(".btn-del").forEach((btn) =>
     btn.addEventListener("click", async () => {
       try {
@@ -453,8 +444,11 @@ function attachSessionCardsHandlers(wrap) {
         if (currentSessionId === id && (mode === "all" || mode === "runtime")) {
           currentSessionId = "";
           persistInputs();
-          setQRVisible(false);
-          el("sessionInfo").innerHTML = "";
+          setQRVisible(false); // auto sembunyikan QR
+          const sel = el("sessionSelect");
+          if (sel) sel.value = "";
+          const info = el("sessionInfo");
+          if (info) info.innerHTML = "";
         }
         el("btnRefresh").click();
         toast(`Deleted (${mode})`, mode === "runtime" ? "warn" : "err");
@@ -464,6 +458,7 @@ function attachSessionCardsHandlers(wrap) {
     })
   );
 
+  // Join QR per kartu (tetap ada di grid; disembunyikan saat status open)
   wrap.querySelectorAll(".btn-join").forEach((btn) =>
     btn.addEventListener("click", () => {
       if (ioClient?.connected) {
@@ -475,6 +470,7 @@ function attachSessionCardsHandlers(wrap) {
     })
   );
 
+  // Set active
   wrap.querySelectorAll(".btn-set-active").forEach((btn) =>
     btn.addEventListener("click", async () => {
       try {
@@ -538,16 +534,16 @@ el("btnRefresh").addEventListener("click", async () => {
            <div class="muted">${s.me ? "Logged in" : "Not logged in"}</div>
          </div>
          <div class="row mt-8">
-    <button data-id="${s.id}" class="btn-join" ${
+           <button data-id="${s.id}" class="btn-join" ${
         s.status === "open" ? 'style="display:none"' : ""
       }>Join QR</button>
-    <button data-id="${s.id}" class="btn-set-active ${
+           <button data-id="${s.id}" class="btn-set-active ${
         isActive ? "btn-accent" : "btn-primary"
       }" ${isActive ? "disabled" : ""}>
-      ${isActive ? "Active" : "Set Active"}
-    </button>
-    <button data-id="${s.id}" class="btn-del btn-danger">Delete</button>
-  </div>`;
+             ${isActive ? "Active" : "Set Active"}
+           </button>
+           <button data-id="${s.id}" class="btn-del btn-danger">Delete</button>
+         </div>`;
       wrap.appendChild(div);
     });
 
@@ -558,26 +554,9 @@ el("btnRefresh").addEventListener("click", async () => {
   }
 });
 
-const joinBtn = el("btnJoinQR");
-if (joinBtn) {
-  joinBtn.style.display = detail.status === "open" ? "none" : "";
-  joinBtn.disabled = detail.status === "open";
-}
+// Hapus tombol Join QR di header (sudah tidak ada di HTML terbaru)
 
-el("btnJoinQR").addEventListener("click", () => {
-  const id = el("sessionSelect").value;
-  if (!id) return toast("Pilih session dulu", "warn");
-  currentSessionId = id;
-  persistInputs();
-  if (ioClient?.connected) {
-    ioClient.emit("join", { room: id });
-    updateActiveUI();
-    toast("Joined QR room: " + id);
-  } else {
-    toast("Identify belum connect. Klik Connect dulu.", "warn");
-  }
-});
-
+// Delete via selector
 el("btnDeleteSess").addEventListener("click", async () => {
   const id = el("sessionSelect").value;
   if (!id) return toast("Pilih session", "warn");
@@ -588,6 +567,10 @@ el("btnDeleteSess").addEventListener("click", async () => {
       currentSessionId = "";
       persistInputs();
       setQRVisible(false);
+      const sel = el("sessionSelect");
+      if (sel) sel.value = "";
+      const info = el("sessionInfo");
+      if (info) info.innerHTML = "";
     }
     el("btnRefresh").click();
     updateActiveUI();
@@ -597,6 +580,7 @@ el("btnDeleteSess").addEventListener("click", async () => {
   }
 });
 
+// Change active via selector
 el("sessionSelect").addEventListener("change", async () => {
   const id = el("sessionSelect").value;
   if (!id) return;
