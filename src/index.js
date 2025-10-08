@@ -6,6 +6,7 @@ import cors from "cors";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import crypto from "node:crypto";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
 import { errorHandler } from "./middleware/error.js";
@@ -43,7 +44,7 @@ app.use(
       return cb(new Error("CORS not allowed: " + origin), false);
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "X-API-Key"],
+    allowedHeaders: ["Content-Type", "X-API-Key", "Authorization"],
     maxAge: 86400,
   })
 );
@@ -98,30 +99,70 @@ app.use("/api/webhooks", webhooks);
 
 // ====== Error handler terakhir ======
 app.use(errorHandler);
-
+function roleFromKey(key) {
+  if (!key) return null;
+  if (key === config.adminKey) return "admin";
+  if (config.userKeys && config.userKeys.includes(key)) return "user";
+  return null;
+}
 // ====== HTTP + Socket.IO ======
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: ORIGINS,
     methods: ["GET", "POST"],
-    allowedHeaders: ["X-API-Key"],
+    allowedHeaders: ["X-API-Key", "Authorization"],
   },
 });
 app.set("io", io);
 
-// (Opsional) buat global reference agar modul lain (mis. baileysClient) bisa emit event tanpa circular dep
+// buat global reference agar modul lain (mis. baileysClient) bisa emit event tanpa circular dep
 globalThis.__io = io;
 
-// Auth Socket.IO sederhana via X-API-Key
+function safeEqual(a, b) {
+  const A = Buffer.from(String(a || ""));
+  const B = Buffer.from(String(b || ""));
+  if (A.length !== B.length) return false;
+  try {
+    return crypto.timingSafeEqual(A, B);
+  } catch {
+    return false;
+  }
+}
+
 io.use((socket, next) => {
-  const key =
-    socket.handshake.auth?.apiKey || socket.handshake.headers["x-api-key"];
-  if (!key) return next(new Error("Missing X-API-Key"));
-  // TODO: validasi role admin/user jika diperlukan
-  next();
+  try {
+    const rawAuth = socket.handshake.auth?.apiKey;
+    const rawHdr = socket.handshake.headers["x-api-key"];
+    const key = String(rawAuth || rawHdr || "").trim();
+
+    if (!key) {
+      const err = new Error("Missing X-API-Key");
+      err.data = { code: 401, message: "Missing X-API-Key" };
+      return next(err);
+    }
+
+    const isAdmin = safeEqual(key, config.adminKey);
+    const isUser = (config.userKeys || []).some((k) => safeEqual(key, k));
+
+    if (!isAdmin && !isUser) {
+      const err = new Error("Unauthorized");
+      err.data = { code: 401, message: "Invalid X-API-Key" };
+      return next(err);
+    }
+
+    socket.data.role = isAdmin ? "admin" : "user";
+    socket.data.apiKey = key;
+    return next();
+  } catch {
+    const err = new Error("Unauthorized");
+    err.data = { code: 401, message: "Invalid X-API-Key" };
+    return next(err);
+  }
 });
+
 io.on("connection", (socket) => {
+  socket.emit("welcome", { role: socket.data.role });
   socket.on("join", ({ room }) => socket.join(room));
 });
 

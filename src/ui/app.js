@@ -1,4 +1,6 @@
 /* ====== State & constants ====== */
+let currentRole = null;
+
 const LS_KEYS = {
   apiKey: "wa.apiKey",
   baseUrl: "wa.baseUrl",
@@ -11,6 +13,20 @@ let currentSessionId = localStorage.getItem(LS_KEYS.currentSessionId) || "";
 /* ====== DOM helpers ====== */
 const el = (id) => document.getElementById(id);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+function setUIByRole(role) {
+  currentRole = role;
+  const sSess = document.getElementById("secSessions");
+  const sMsg = document.getElementById("secMessaging");
+  const sHealth = document.getElementById("secHealth");
+
+  if (sMsg) sMsg.style.display = ""; // selalu ada saat connected
+  if (sHealth) sHealth.style.display = ""; // selalu ada saat connected
+  if (sSess) {
+    // hanya admin yang boleh lihat "Create / Manage Session"
+    sSess.style.display = role === "admin" ? "" : "none";
+  }
+}
 
 function toast(msg, kind = "ok") {
   let t = document.querySelector(".toast");
@@ -60,16 +76,42 @@ function gateButtons(disabled) {
   });
 }
 
+/* ====== QR panel helpers ====== */
+function setQRPanelActive(active) {
+  const split = document.querySelector("#secSessions .section-split");
+  const qrWrap = document.getElementById("qrWrap");
+  if (!split || !qrWrap) return;
+  qrWrap.classList.toggle("hidden", !active);
+  split.classList.toggle("no-qr", !active); // no-qr => 1 kolom
+}
+
+/** Tampilkan/sembunyikan area QR + bersihkan kontennya saat off */
 function setQRVisible(flag) {
   const area = el("qrArea");
   if (!area) return;
-  area.classList.toggle("hidden", !flag);
+  setQRPanelActive(flag);
+
   if (!flag) {
     const img = el("qrImg");
     if (img) img.src = "";
     const meta = el("qrMeta");
     if (meta) meta.textContent = "";
+    area.classList.add("hidden");
+    return;
   }
+
+  // ON: pastikan terlihat
+  area.classList.remove("hidden");
+}
+
+function renderQRImage(qr, sessionId) {
+  setQRVisible(true);
+  const base = (el("baseUrl").value.trim() || window.location.origin).replace(
+    /\/$/,
+    ""
+  );
+  el("qrImg").src = `${base}/utils/qr.png?data=${encodeURIComponent(qr)}`;
+  el("qrMeta").textContent = `Session: ${sessionId} • QR akan refresh otomatis`;
 }
 
 /* ====== API helper ====== */
@@ -89,11 +131,13 @@ async function api(path, method = "GET", body, retry = 0) {
     });
     if (!r.ok) {
       const txt = await r.text().catch(() => "");
+      if (r.status === 401 || r.status === 403) {
+        throw new Error("Unauthorized: Invalid X-API-Key");
+      }
       throw new Error(txt || r.statusText);
     }
     return r.json();
   } catch (e) {
-    // retry ringan untuk kasus server baru boot
     if (retry < 2) {
       await new Promise((r) => setTimeout(r, 600));
       return api(path, method, body, retry + 1);
@@ -139,18 +183,8 @@ function fillSessionSelect(items) {
   if (!currentSessionId && items.some((x) => x.id === old)) sel.value = old;
 }
 
-function renderQRImage(qr, sessionId) {
-  setQRVisible(true);
-  const base = (el("baseUrl").value.trim() || window.location.origin).replace(
-    /\/$/,
-    ""
-  );
-  el("qrImg").src = `${base}/utils/qr.png?data=${encodeURIComponent(qr)}`;
-  el("qrMeta").textContent = `Session: ${sessionId} • QR akan refresh otomatis`;
-}
-
 function updateActiveUI() {
-  // Kartu
+  // Kartu grid
   document.querySelectorAll("#sessions .card").forEach((card) => {
     const id = card.getAttribute("data-id");
     if (!id) return;
@@ -208,63 +242,122 @@ function connectSocket({ silent = false } = {}) {
     ioClient.on("connect", () => {
       setSockDot("online");
       gateButtons(false);
+      setConnectedUI(true);
       if (!silent) toast("Socket connected");
 
-      // Join room sesi aktif
       if (currentSessionId) {
         ioClient.emit("join", { room: currentSessionId });
       }
-
-      // Refresh list
       el("btnRefresh")?.click();
+    });
+
+    ioClient.on("welcome", ({ role }) => {
+      if (!role) return;
+      setUIByRole(role);
     });
 
     ioClient.on("reconnect_attempt", () => setSockDot("reconn"));
     ioClient.on("reconnect", () => {
       setSockDot("online");
       gateButtons(false);
+      setConnectedUI(true);
       el("btnRefresh")?.click();
     });
     ioClient.on("reconnect_error", () => setSockDot("reconn"));
-    ioClient.on("reconnect_failed", () => setSockDot("offline"));
+    ioClient.on("reconnect_failed", () => {
+      setSockDot("offline");
+      gateButtons(true);
+      setConnectedUI(false);
+    });
 
     ioClient.on("connect_error", (err) => {
       setSockDot("offline");
       gateButtons(true);
-      const msg =
-        err && (err.message || err.data)
-          ? err.message || err.data
-          : "connect_error";
-      if (!silent) toast("Socket error: " + msg, "err");
+      setConnectedUI(false);
+      currentRole = null; // reset
+      let msg = "connect_error";
+      if (err?.data?.code === 401) msg = "Invalid X-API-Key";
+      else if (err && (err.message || err.data)) msg = err.message || err.data;
+      if (!silent) toast("Error: " + msg, "err");
       console.debug("[socket connect_error]", err);
     });
 
     ioClient.on("disconnect", (reason) => {
       setSockDot("offline");
+      setConnectedUI(false);
+      currentRole = null;
       if (reason !== "io client disconnect")
-        toast("Socket disconnected: " + reason, "warn");
+        toast("Disconnected: " + reason, "warn");
     });
 
-    // server events
+    // ==== live QR events ====
     ioClient.on("qr", ({ id, qr }) => {
-      if (currentSessionId && id !== currentSessionId) return;
+      if (id !== currentSessionId) return;
+      setQRVisible(true);
       renderQRImage(qr, id);
     });
+
     ioClient.on("ready", ({ id }) => {
-      if (currentSessionId && id !== currentSessionId) return;
-      toast("Session ready!");
+      if (id !== currentSessionId) return;
       setQRVisible(false);
+      const joinBtn = el("btnJoinQR");
+      if (joinBtn) {
+        joinBtn.style.display = "none";
+        joinBtn.disabled = true;
+      }
       el("btnRefresh")?.click();
     });
+
     ioClient.on("closed", ({ id }) => {
-      if (currentSessionId && id !== currentSessionId) return;
+      if (id !== currentSessionId) return;
       toast("Session closed", "warn");
+      setQRVisible(true); // perlu login ulang
       el("btnRefresh")?.click();
     });
   } catch (e) {
     console.error(e);
     if (!silent) toast(e.message || "Gagal inisialisasi socket", "err");
+    setConnectedUI(false);
   }
+}
+
+function setConnectedUI(connected) {
+  const s1 = el("secSessions");
+  const s2 = el("secMessaging");
+  const s3 = el("secHealth");
+  if (s1) s1.style.display = connected ? "" : "none";
+  if (s2) s2.style.display = connected ? "" : "none";
+  if (s3) s3.style.display = connected ? "" : "none";
+
+  const btn = el("btnLoad");
+  if (btn) {
+    if (connected) {
+      btn.textContent = "Log Out";
+      btn.classList.remove("btn-primary");
+      btn.classList.add("btn-danger");
+      btn.setAttribute("aria-label", "Log out from Socket");
+    } else {
+      btn.textContent = "Connect";
+      btn.classList.remove("btn-danger");
+      btn.classList.add("btn-primary");
+      btn.setAttribute("aria-label", "Connect to Socket");
+    }
+  }
+}
+
+function logoutSocket() {
+  try {
+    if (ioClient) {
+      ioClient.removeAllListeners();
+      ioClient.disconnect();
+      ioClient = null;
+    }
+  } catch (_) {}
+  currentRole = null;
+  setSockDot("offline");
+  gateButtons(true);
+  setConnectedUI(false);
+  setQRVisible(false);
 }
 
 /* ====== Persist helpers ====== */
@@ -284,6 +377,7 @@ function loadInputsFromStorage() {
 
 /* ====== Boot ====== */
 document.addEventListener("DOMContentLoaded", async () => {
+  setConnectedUI(false);
   loadInputsFromStorage();
   if (!el("baseUrl").value) el("baseUrl").value = window.location.origin;
   gateButtons(true);
@@ -292,20 +386,30 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (el("apiKey").value && el("baseUrl").value) {
     connectSocket({ silent: true });
 
-    // Jika ada sesi aktif tersimpan, coba tarik detail & QR
+    // Jika ada sesi aktif tersimpan, coba tarik detail & tentukan QR panel
     if (currentSessionId) {
       try {
         const detail = await api("/api/sessions/" + currentSessionId);
         setSessionInfo(detail);
-        if (detail.qr) renderQRImage(detail.qr, currentSessionId);
-        else setQRVisible(false);
-      } catch (e) {
+
+        if (detail.status === "open") {
+          setQRVisible(false);
+        } else {
+          setQRVisible(true);
+          if (detail.qr) renderQRImage(detail.qr, currentSessionId);
+        }
+      } catch {
+        // retry kecil
         setTimeout(async () => {
           try {
             const detail = await api("/api/sessions/" + currentSessionId);
             setSessionInfo(detail);
-            if (detail.qr) renderQRImage(detail.qr, currentSessionId);
-            else setQRVisible(false);
+            if (detail.status === "open") {
+              setQRVisible(false);
+            } else {
+              setQRVisible(true);
+              if (detail.qr) renderQRImage(detail.qr, currentSessionId);
+            }
           } catch {}
         }, 800);
       }
@@ -317,50 +421,79 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 /* ====== Controls: Connect ====== */
 el("btnLoad").addEventListener("click", () => {
+  if (ioClient?.connected) {
+    logoutSocket();
+    toast("Logged out from UI socket", "warn");
+    return;
+  }
   persistInputs();
   connectSocket();
 });
+
+async function apiDeleteSession(id, mode = "runtime") {
+  return api(
+    `/api/sessions/${encodeURIComponent(id)}?mode=${encodeURIComponent(mode)}`,
+    "DELETE"
+  );
+}
 
 /* ====== Sessions ====== */
 function attachSessionCardsHandlers(wrap) {
   wrap.querySelectorAll(".btn-del").forEach((btn) =>
     btn.addEventListener("click", async () => {
       try {
-        await api("/api/sessions/" + btn.dataset.id, "DELETE");
-        if (currentSessionId === btn.dataset.id) {
+        const id = btn.dataset.id;
+        const mode = prompt(
+          `Hapus apa?\n- runtime  : stop sementara (default)\n- creds    : hapus kredensial (paksa QR lagi)\n- meta     : hapus dari registry (hilang dari list)\n- all      : semuanya (runtime + creds + meta)\n\nKetik salah satu (runtime/creds/meta/all):`,
+          "runtime"
+        );
+        if (!mode) return;
+
+        await apiDeleteSession(id, mode.trim().toLowerCase());
+        if (currentSessionId === id && (mode === "all" || mode === "runtime")) {
           currentSessionId = "";
           persistInputs();
           setQRVisible(false);
+          el("sessionInfo").innerHTML = "";
         }
         el("btnRefresh").click();
-        toast("Session deleted", "warn");
+        toast(`Deleted (${mode})`, mode === "runtime" ? "warn" : "err");
       } catch (e) {
         toast(e.message || "Error", "err");
       }
     })
   );
+
   wrap.querySelectorAll(".btn-join").forEach((btn) =>
     btn.addEventListener("click", () => {
       if (ioClient?.connected) {
         ioClient.emit("join", { room: btn.dataset.id });
         toast("Joined QR room: " + btn.dataset.id);
       } else {
-        toast("Socket belum connect. Klik Connect dulu.", "warn");
+        toast("Identify belum connect. Klik Connect dulu.", "warn");
       }
     })
   );
+
   wrap.querySelectorAll(".btn-set-active").forEach((btn) =>
     btn.addEventListener("click", async () => {
       try {
         currentSessionId = btn.dataset.id;
         persistInputs();
         el("sessionSelect").value = currentSessionId;
+
         const detail = await api("/api/sessions/" + currentSessionId);
         setSessionInfo(detail);
+
         if (ioClient?.connected)
           ioClient.emit("join", { room: currentSessionId });
-        if (detail.qr) renderQRImage(detail.qr, currentSessionId);
-        else setQRVisible(false);
+
+        if (detail.status === "open") {
+          setQRVisible(false);
+        } else {
+          setQRVisible(true);
+          if (detail.qr) renderQRImage(detail.qr, currentSessionId);
+        }
         updateActiveUI();
       } catch (e) {
         toast(e.message || "Error", "err");
@@ -405,14 +538,16 @@ el("btnRefresh").addEventListener("click", async () => {
            <div class="muted">${s.me ? "Logged in" : "Not logged in"}</div>
          </div>
          <div class="row mt-8">
-           <button data-id="${s.id}" class="btn-join">Join QR</button>
-           <button data-id="${s.id}" class="btn-set-active ${
+    <button data-id="${s.id}" class="btn-join" ${
+        s.status === "open" ? 'style="display:none"' : ""
+      }>Join QR</button>
+    <button data-id="${s.id}" class="btn-set-active ${
         isActive ? "btn-accent" : "btn-primary"
       }" ${isActive ? "disabled" : ""}>
-             ${isActive ? "Active" : "Set Active"}
-           </button>
-           <button data-id="${s.id}" class="btn-del btn-danger">Delete</button>
-         </div>`;
+      ${isActive ? "Active" : "Set Active"}
+    </button>
+    <button data-id="${s.id}" class="btn-del btn-danger">Delete</button>
+  </div>`;
       wrap.appendChild(div);
     });
 
@@ -423,6 +558,12 @@ el("btnRefresh").addEventListener("click", async () => {
   }
 });
 
+const joinBtn = el("btnJoinQR");
+if (joinBtn) {
+  joinBtn.style.display = detail.status === "open" ? "none" : "";
+  joinBtn.disabled = detail.status === "open";
+}
+
 el("btnJoinQR").addEventListener("click", () => {
   const id = el("sessionSelect").value;
   if (!id) return toast("Pilih session dulu", "warn");
@@ -430,9 +571,10 @@ el("btnJoinQR").addEventListener("click", () => {
   persistInputs();
   if (ioClient?.connected) {
     ioClient.emit("join", { room: id });
+    updateActiveUI();
     toast("Joined QR room: " + id);
   } else {
-    toast("Socket belum connect. Klik Connect dulu.", "warn");
+    toast("Identify belum connect. Klik Connect dulu.", "warn");
   }
 });
 
@@ -440,15 +582,16 @@ el("btnDeleteSess").addEventListener("click", async () => {
   const id = el("sessionSelect").value;
   if (!id) return toast("Pilih session", "warn");
   try {
-    await api("/api/sessions/" + id, "DELETE");
-    if (currentSessionId === id) {
+    const mode = prompt("Hapus apa? (runtime/creds/meta/all)", "all") || "all";
+    await apiDeleteSession(id, mode.trim().toLowerCase());
+    if (currentSessionId === id && (mode === "all" || mode === "runtime")) {
       currentSessionId = "";
       persistInputs();
       setQRVisible(false);
     }
     el("btnRefresh").click();
     updateActiveUI();
-    toast("Session deleted", "warn");
+    toast(`Session deleted (${mode})`, "warn");
   } catch (e) {
     toast(e.message || "Error", "err");
   }
@@ -462,8 +605,15 @@ el("sessionSelect").addEventListener("change", async () => {
     persistInputs();
     const detail = await api("/api/sessions/" + id);
     setSessionInfo(detail);
-    if (detail.qr) renderQRImage(detail.qr, id);
-    else setQRVisible(false);
+
+    // QR hanya muncul bila belum open
+    if (detail.status === "open") {
+      setQRVisible(false);
+    } else {
+      setQRVisible(true);
+      if (detail.qr) renderQRImage(detail.qr, id);
+    }
+
     if (ioClient?.connected) ioClient.emit("join", { room: id });
     updateActiveUI();
   } catch (e) {

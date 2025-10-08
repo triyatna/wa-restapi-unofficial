@@ -6,7 +6,8 @@
       "autoStart": true,
       "webhookUrl": "",
       "webhookSecret": "supersecret",
-      "createdAt": 1759897613643
+      "createdAt": 1759897613643,
+      "ownerId": null
     },
     "device": {
       "id": "device",
@@ -14,7 +15,8 @@
       "autoStart": true,
       "webhookUrl": "",
       "webhookSecret": "supersecret",
-      "createdAt": 1759897635257
+      "createdAt": 1759897635257,
+      "ownerId": null
     }
   }
 }

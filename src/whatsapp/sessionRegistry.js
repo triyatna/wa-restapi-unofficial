@@ -36,6 +36,7 @@ export function upsertSessionMeta(meta) {
     webhookUrl: meta.webhookUrl ?? prev.webhookUrl ?? "",
     webhookSecret: meta.webhookSecret ?? prev.webhookSecret ?? "",
     createdAt: prev.createdAt ?? Date.now(),
+    ownerId: meta.ownerId ?? prev.ownerId ?? null,
   };
   saveRegistry();
   return registry.sessions[meta.id];

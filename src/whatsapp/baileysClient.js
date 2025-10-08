@@ -32,7 +32,7 @@ async function purgeCreds(id) {
     await fsp.rm(dir, { recursive: true, force: true });
   }
 }
-
+export { purgeCreds };
 const logger = Pino({
   level: process.env.NODE_ENV === "development" ? "debug" : "info",
 });
@@ -122,6 +122,7 @@ export async function createSession({
   webhook,
   label,
   autoStart = true,
+  ownerId,
 }) {
   const sessId = id || ulid();
   if (sessions.has(sessId)) return sessions.get(sessId);
@@ -133,6 +134,7 @@ export async function createSession({
     webhookUrl: webhook?.url || "",
     webhookSecret: webhook?.secret || "",
     autoStart,
+    ownerId,
   });
 
   const authDir = path.resolve(
