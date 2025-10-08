@@ -614,10 +614,13 @@
 
       /* ===== Footer ===== */
       footer.site-footer {
-        position: fixed;
+        position: relative;
         bottom: 0;
         left: 0;
         right: 0;
+        background-color: #30303052;
+        border-top: 1px solid rgba(80, 80, 80, 0.441);
+        backdrop-filter: blur(10px) saturate(120%);
       }
       .footer-inner {
         max-width: 1200px;
@@ -1150,7 +1153,7 @@
     </main>
     <footer class="site-footer" role="contentinfo">
       <div class="footer-inner">
-        <div>© <span id="year"></span> WARest UI Manage Manage</div>
+        <div>© <span id="year"></span> WARest UI Manage</div>
         <nav class="footer-links" aria-label="Footer links">
           <a href="/health" target="_blank" rel="noopener noreferrer">Health</a>
           <a href="/health/live" target="_blank" rel="noopener noreferrer"

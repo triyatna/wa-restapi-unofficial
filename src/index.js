@@ -4,9 +4,13 @@ import { Server } from "socket.io";
 import helmet from "helmet";
 import cors from "cors";
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-
 import crypto from "node:crypto";
+
+import swaggerUi from "swagger-ui-express";
+import YAML from "yaml";
+
 import { config } from "./config.js";
 import { logger } from "./logger.js";
 import { errorHandler } from "./middleware/error.js";
@@ -25,6 +29,11 @@ import ui from "./routes/ui.js";
 import { loadRegistry } from "./whatsapp/sessionRegistry.js";
 import { bootstrapSessions } from "./whatsapp/baileysClient.js";
 
+// Middlewares
+import { apiKeyAuth } from "./middleware/auth.js";
+import { dynamicRateLimit } from "./middleware/ratelimit.js";
+import { antiSpam } from "./middleware/antispam.js";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -34,12 +43,13 @@ app.set("logger", logger);
 // ====== CORS ======
 const ORIGINS = (process.env.ALLOWED_ORIGINS || "http://localhost:4000")
   .split(",")
-  .map((s) => s.trim());
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 app.use(
   cors({
     origin: (origin, cb) => {
-      if (!origin) return cb(null, true);
+      if (!origin) return cb(null, true); // non-browser / curl
       if (ORIGINS.includes(origin)) return cb(null, true);
       return cb(new Error("CORS not allowed: " + origin), false);
     },
@@ -61,20 +71,15 @@ app.use(
         "connect-src": ["'self'", "ws:", "wss:", ...ORIGINS],
         "img-src": ["'self'", "data:", "blob:"],
         "style-src": ["'self'", "'unsafe-inline'"],
+        "font-src": ["'self'", "data:"], // penting utk Swagger UI
         "object-src": ["'none'"],
       },
     },
   })
 );
 
-// ====== RAW upload router HARUS sebelum json parser ======
-import { apiKeyAuth } from "./middleware/auth.js";
-import { dynamicRateLimit } from "./middleware/ratelimit.js";
-import { antiSpam } from "./middleware/antispam.js";
-
+// ====== RAW upload router (HARUS sebelum JSON parser) ======
 // Endpoint binary/multipart multi-file:
-//   /api/messages/media/file (raw & multipart)
-// diproteksi auth/ratelimit/antispam sama seperti messages lain.
 app.use(
   "/api/messages",
   apiKeyAuth("user"),
@@ -97,28 +102,49 @@ app.use("/api/sessions", sessions);
 app.use("/api/messages", messages); // /text, /media(url), /location, /buttons, /list, /poll, /sticker, /vcard, /gif, etc.
 app.use("/api/webhooks", webhooks);
 
+// ===== OpenAPI /docs =====
+const openapiPath = path.join(process.cwd(), "openapi.yaml");
+let openapiCache = { mtime: 0, doc: null };
+
+function loadOpenapiCached() {
+  const stat = fs.statSync(openapiPath);
+  const m = stat.mtimeMs;
+  if (!openapiCache.doc || openapiCache.mtime !== m) {
+    const raw = fs.readFileSync(openapiPath, "utf8");
+    openapiCache.doc = YAML.parse(raw);
+    openapiCache.mtime = m;
+  }
+  return openapiCache.doc;
+}
+
+// raw yaml/json (berguna untuk tooling/CI)
+app.get("/docs/openapi.yaml", (req, res) => {
+  res.setHeader("Content-Type", "application/yaml; charset=utf-8");
+  fs.createReadStream(openapiPath).pipe(res);
+});
+app.get("/docs/openapi.json", (req, res) => {
+  res.json(loadOpenapiCached());
+});
+
+// UI di /docs
+app.use(
+  "/docs",
+  swaggerUi.serve,
+  swaggerUi.setup(loadOpenapiCached(), {
+    explorer: true,
+    customSiteTitle: "WARest API Docs",
+    swaggerOptions: {
+      persistAuthorization: true,
+    },
+    customCss:
+      ".swagger-ui .topbar{display:none}.swagger-ui .info .title{font-weight:800}",
+  })
+);
+
 // ====== Error handler terakhir ======
 app.use(errorHandler);
-function roleFromKey(key) {
-  if (!key) return null;
-  if (key === config.adminKey) return "admin";
-  if (config.userKeys && config.userKeys.includes(key)) return "user";
-  return null;
-}
+
 // ====== HTTP + Socket.IO ======
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: ORIGINS,
-    methods: ["GET", "POST"],
-    allowedHeaders: ["X-API-Key", "Authorization"],
-  },
-});
-app.set("io", io);
-
-// buat global reference agar modul lain (mis. baileysClient) bisa emit event tanpa circular dep
-globalThis.__io = io;
-
 function safeEqual(a, b) {
   const A = Buffer.from(String(a || ""));
   const B = Buffer.from(String(b || ""));
@@ -129,6 +155,18 @@ function safeEqual(a, b) {
     return false;
   }
 }
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: ORIGINS,
+    methods: ["GET", "POST"],
+    allowedHeaders: ["X-API-Key", "Authorization"],
+  },
+});
+app.set("io", io);
+
+globalThis.__io = io;
 
 io.use((socket, next) => {
   try {
@@ -169,24 +207,14 @@ io.on("connection", (socket) => {
 // ====== BOOTSTRAP ======
 (async () => {
   try {
-    // load registry dari disk
     loadRegistry();
 
-    // autostart semua sessions yg autoStart=true (pake kredensial di credentials/)
     await bootstrapSessions(io);
 
-    // // Jika belum punya bootstrapSessions(), pakai fallback:
-    // const metas = listSessionMeta();
-    // for (const m of metas) {
-    //   if (m.autoStart === false) continue;
-    //   await startSession({ id: m.id, webhookUrl: m.webhookUrl, webhookSecret: m.webhookSecret })
-    //     .catch(e => logger.error(e, "[autostart] failed " + m.id));
-    // }
-
-    // start server
     server.listen(config.port, config.host, () => {
       logger.info(`WA API listening on http://${config.host}:${config.port}`);
-      logger.info(`UI: http://${config.host}:${config.port}/ui`);
+      logger.info(`UI:    http://${config.host}:${config.port}/ui`);
+      logger.info(`Docs:  http://${config.host}:${config.port}/docs`);
     });
   } catch (e) {
     logger.error(e, "Fatal during bootstrap");
