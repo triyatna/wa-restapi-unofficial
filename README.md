@@ -188,7 +188,7 @@ http://localhost:4000/ui
 
 ## 🔐 Autentikasi & Role
 
-- Seluruh request butuh header `X-API-Key`.
+- Seluruh request butuh authentication `X-API-Key` di header.
 - **Admin**: akses semua endpoint termasuk `/api/admin/*`.
 - **User**: endpoints pengiriman pesan, session create/inspect, webhook per-session.
 
