@@ -1,5 +1,5 @@
 {
-  "name": "wablast",
+  "name": "warest",
   "version": "7.5.0",
   "description": "Whatsapp remote API multi device, multi instance. Based on Baileys.",
   "main": "src/index.js",
