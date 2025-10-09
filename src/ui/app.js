@@ -368,6 +368,7 @@ function loadInputsFromStorage() {
 /* ====== Boot ====== */
 document.addEventListener("DOMContentLoaded", async () => {
   setConnectedUI(false);
+  setQRPanelActive(false);
   loadInputsFromStorage();
   if (!el("baseUrl").value) el("baseUrl").value = window.location.origin;
   gateButtons(true);

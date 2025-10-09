@@ -15,6 +15,8 @@ import { config } from "./config.js";
 import { logger } from "./logger.js";
 import { errorHandler } from "./middleware/error.js";
 
+import { basicAuthGate } from "./middleware/basicAuth.js";
+
 // Routes
 import health from "./routes/health.js";
 import admin from "./routes/admin.js";
@@ -92,7 +94,7 @@ app.use(
 app.use(express.json({ limit: "2mb" }));
 
 // ====== Static UI & utils ======
-app.use("/ui", ui); // serve UI
+app.use("/ui", basicAuthGate({ realm: "WARest UI" }), ui); // serve UI
 app.use("/utils", qr); // /utils/qr.png?data=...
 
 // ====== API lain (pakai JSON) ======
@@ -118,17 +120,26 @@ function loadOpenapiCached() {
 }
 
 // raw yaml/json (berguna untuk tooling/CI)
-app.get("/docs/openapi.yaml", (req, res) => {
-  res.setHeader("Content-Type", "application/yaml; charset=utf-8");
-  fs.createReadStream(openapiPath).pipe(res);
-});
-app.get("/docs/openapi.json", (req, res) => {
-  res.json(loadOpenapiCached());
-});
+app.get(
+  "/docs/openapi.yaml",
+  basicAuthGate({ realm: "WARest Docs" }),
+  (req, res) => {
+    res.setHeader("Content-Type", "application/yaml; charset=utf-8");
+    fs.createReadStream(openapiPath).pipe(res);
+  }
+);
+app.get(
+  "/docs/openapi.json",
+  basicAuthGate({ realm: "WARest Docs" }),
+  (req, res) => {
+    res.json(loadOpenapiCached());
+  }
+);
 
 // UI di /docs
 app.use(
   "/docs",
+  basicAuthGate({ realm: "WARest Docs" }),
   swaggerUi.serve,
   swaggerUi.setup(loadOpenapiCached(), {
     explorer: true,
