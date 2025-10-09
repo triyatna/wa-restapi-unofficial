@@ -154,16 +154,16 @@ ALLOWED_ORIGINS=http://localhost:5173,http://localhost:8000
 | `ALLOWED_ORIGINS`        | Daftar origin yang diizinkan CORS, pisah koma                    | _(kosong)_           | `http://localhost:5173,http://localhost:8000,http://127.0.0.1:4000` |
 | `WEBHOOK_DEFAULT_URL`    | Default URL webhook jika tidak dikirim saat create session       | _(kosong)_           | _(kosong)_                                                          |
 | `WEBHOOK_DEFAULT_SECRET` | Secret default untuk penandatanganan/pemverifikasian webhook     | `supersecret`        | `supersecret`                                                       |
-| `RATE_LIMIT_WINDOW_MS`   | Jendela waktu rate limit (ms)                                    | `60000`              | `60000`                                                             |
-| `RATE_LIMIT_MAX`         | Maksimum request per jendela waktu                               | `120`                | `120`                                                               |
+| `RATE_LIMIT_WINDOW_MS`   | Jendela waktu rate limit (ms)                                    | `60000`              | `6000`                                                              |
+| `RATE_LIMIT_MAX`         | Maksimum request per jendela waktu                               | `120`                | `260`                                                               |
 | `HTTPS_PROXY`            | (Opsional) URL proxy untuk outbound HTTP(S)                      | _(kosong)_           | _(kosong)_                                                          |
-| `LOG_PRETTY`             | Pretty print log (`true/false`)                                  | `true`               | `true`                                                              |
+| `LOG_PRETTY`             | Pretty print log (`true/false`)                                  | `true`               | `false`                                                             |
 | `LOG_LEVEL`              | Level log (`error`,`warn`,`info`,`debug`)                        | `info`               | `info`                                                              |
 | `SPAM_COOLDOWN_MS`       | Cooldown anti-spam per pengirim (ms)                             | `3000`               | `3000`                                                              |
 | `QUOTA_WINDOW_MS`        | Jendela waktu kuota anti-spam (ms)                               | `60000`              | `60000`                                                             |
 | `QUOTA_MAX`              | Batas kuota pesan per jendela                                    | `500`                | `500`                                                               |
 | `AUTOREPLY_ENABLED`      | Aktifkan fitur auto-reply bawaan (`true/false`)                  | `false`              | `true`                                                              |
-| `AUTOREPLY_PING_PONG`    | Auto-reply khusus ping→pong saat autoreply aktif (`true/false`)  | `true`               | `true`                                                              |
+| `AUTOREPLY_PING_PONG`    | Auto-reply khusus ping→pong saat autoreply aktif (`true/false`)  | `true`               | `false`                                                             |
 
 ---
 
