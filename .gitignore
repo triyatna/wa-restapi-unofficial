@@ -2,3 +2,5 @@
 .env
 /credentials
 /data
+package-lock.json
+/docker
