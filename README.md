@@ -1,4 +1,4 @@
-# WARest
+# WARest - WhatsApp Web Multi
 
 REST API + UI **multi-session / multi-device / multi-instance** untuk WhatsApp berbasis **Baileys** (ESM).  
 Menyediakan pengiriman teks & media, interactive messages (buttons/list/poll), sticker, vCard, GIF, **Webhook** dengan HMAC, rate-limit dinamis, **anti-spam per-recipient** (cooldown), **quota per API-key**, endpoint **binary multipart multi-file**, dan **health metrics** lengkap (CPU/RAM/Disk/Network/Process).
@@ -15,6 +15,7 @@ Menyediakan pengiriman teks & media, interactive messages (buttons/list/poll), s
 - [Instalasi](#-instalasi)
 - [Konfigurasi](#-konfigurasi-env)
 - [Menjalankan](#-menjalankan)
+- [Docker Instalasi](#-docker-installasi)
 - [UI (QR & Kontrol Sesi)](#-ui-qr--kontrol-sesi)
 - [Autentikasi & Role](#-autentikasi--role)
 - [Webhook (Dua-Arah, HMAC)](#-webhook-dua-arah-hmac)
@@ -112,6 +113,8 @@ NODE_ENV=development
 ADMIN_API_KEY=changeme-admin-key
 USER_API_KEYS=user-key-1,user-key-2
 
+AUTHENTICATION=admin:supersecret
+
 # Webhook default (opsional, bisa override per-session)
 WEBHOOK_DEFAULT_URL=
 WEBHOOK_DEFAULT_SECRET=supersecret
@@ -177,9 +180,51 @@ http://localhost:4000/ui
 
 ---
 
+## 🐳 Docker Installasi
+
+[![Docker Pulls](https://img.shields.io/docker/pulls/triyatna/warest.svg)](https://hub.docker.com/r/triyatna/warest-whatsapp-web-multi)
+
+---
+
+Docker Hub: **[`triyatna/warest-whatsapp-web-multi`](https://hub.docker.com/r/triyatna/warest-whatsapp-web-multi)**
+
+Tags yang lazim:
+
+- `latest` — rilis terbaru
+- `X.Y.Z` — rilis versi tertentu (mis. `1.3.2`)
+- (opsional) `-arm64` jika dipublish terpisah untuk platform ARM
+
+```bash
+docker run -d \
+  --name warest \
+  --restart always \
+  -p 4000:4000 \
+  -e NODE_ENV=production \
+  -e PORT=4000 \
+  -e HOST=0.0.0.0 \
+  -e ADMIN_API_KEY=KeySecretAPIAdmin \
+  -e USER_API_KEYS=KeySecretAPIUser1,KeySecretAPIUser2 \
+  -e AUTHENTICATION=user:pass123,admin:supersecret \
+  -e ALLOWED_ORIGINS=http://127.0.0.1:4000,http://127.0.0.1:14000 \
+  -e RATE_LIMIT_WINDOW_MS=60000 \
+  -e RATE_LIMIT_MAX=120 \
+  -e SPAM_COOLDOWN_MS=3000 \
+  -e QUOTA_WINDOW_MS=60000 \
+  -e QUOTA_MAX=500 \
+  -v ./warest_data:/data \
+  --health-cmd='wget -qO- http://127.0.0.1:4000/health/ready || exit 1' \
+  --health-interval=30s \
+  --health-timeout=5s \
+  --health-retries=3 \
+  --health-start-period=30s \
+  triyatna/warest-whatsapp-web-multi:latest
+```
+
+---
+
 ## 🖥️ UI (QR & Kontrol Sesi)
 
-1. Buka `/ui`, set **Base URL** & **X-API-Key** (pakai `ADMIN_API_KEY` untuk full control).
+1. Buka `/ui`, set **Base URL** & **X-API-Key** (pakai `ADMIN_API_KEY` untuk full control) tambahkan AUTHENTICATION=admin:supersecret untuk aktifkan fitur auth.
 2. **Create/Start** session (boleh tanpa `id` → auto generate).
 3. **List Sessions** → pilih → **Join QR** → scan QR (auto refresh).
 4. Status berubah `open` → siap kirim.
@@ -188,7 +233,7 @@ http://localhost:4000/ui
 
 ## 🔐 Autentikasi & Role
 
-- Seluruh request butuh authentication `X-API-Key` di header.
+- Seluruh request butuh header `X-API-Key`.
 - **Admin**: akses semua endpoint termasuk `/api/admin/*`.
 - **User**: endpoints pengiriman pesan, session create/inspect, webhook per-session.
 

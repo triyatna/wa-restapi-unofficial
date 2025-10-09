@@ -1,0 +1,30 @@
+version: "3.9"
+
+services:
+  warest:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: warest-whatsapp-web-multi:latest
+    container_name: warest
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - HOST=0.0.0.0
+      - ADMIN_API_KEY=KeySecretAPIAdmin
+      - USER_API_KEYS=KeySecretAPIUser1,KeySecretAPIUser2
+      - AUTHENTICATION=user:pass123,admin:supersecret
+      - ALLOWED_ORIGINS=http://127.0.0.1:4000,http://127.0.0.1:14000
+    volumes:
+      - ./warest_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/health/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

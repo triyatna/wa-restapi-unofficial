@@ -1,6 +1,6 @@
 {
   "name": "warest",
-  "version": "7.5.0",
+  "version": "1.3.3",
   "description": "Whatsapp remote API multi device, multi instance. Based on Baileys.",
   "main": "src/index.js",
   "author": "Triyatna",
