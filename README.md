@@ -1,6 +1,6 @@
 # WARest - WhatsApp Web Multi
 
-REST API + UI **multi-session / multi-device / multi-instance** untuk WhatsApp berbasis **Baileys** (ESM).  
+REST API + UI (with Auth) **multi-session / multi-device / multi-instance** untuk WhatsApp berbasis **Baileys** (ESM).  
 Menyediakan pengiriman teks & media, interactive messages (buttons/list/poll), sticker, vCard, GIF, **Webhook** dengan HMAC, rate-limit dinamis, **anti-spam per-recipient** (cooldown), **quota per API-key**, endpoint **binary multipart multi-file**, dan **health metrics** lengkap (CPU/RAM/Disk/Network/Process).
 
 > Tested with **@whiskeysockets/baileys ≥ 6.7.19** (ESM).  
